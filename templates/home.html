@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered Medicine & Prescription Verifier</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #f4f9ff, #e8f5e9);
+            margin: 0;
+            padding: 0;
+            color: #222;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 30px auto;
+            background: #ffffff;
+            border-radius: 18px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+            padding: 28px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #1565c0;
+            margin-bottom: 10px;
+            font-size: 2rem;
+        }
+
+        .subheading {
+            text-align: center;
+            font-size: 1rem;
+            color: #444;
+            margin-bottom: 25px;
+            line-height: 1.6;
+        }
+
+        .hero-note {
+            background: #f1f8e9;
+            border-left: 6px solid #43a047;
+            padding: 14px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 0.98rem;
+        }
+
+        .instructions-box {
+            background: #e3f2fd;
+            border-left: 6px solid #1e88e5;
+            padding: 14px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 0.97rem;
+            line-height: 1.7;
+        }
+
+        .commands-box {
+            background: #fff8e1;
+            border-left: 6px solid #f9a825;
+            padding: 14px;
+            border-radius: 10px;
+            margin-bottom: 22px;
+            font-size: 0.96rem;
+            line-height: 1.7;
+        }
+
+        .voice-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .voice-btn {
+            padding: 12px 18px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: #fff;
+            transition: 0.2s ease;
+        }
+
+        .voice-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .read-btn { background: #1976d2; }
+        .start-btn { background: #2e7d32; }
+        .stop-btn { background: #c62828; }
+        .result-btn { background: #6a1b9a; }
+        .clear-btn { background: #ef6c00; }
+
+        form {
+            margin-top: 15px;
+        }
+
+        .upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+            margin-bottom: 20px;
+        }
+
+        .upload-card {
+            background: #fafafa;
+            border: 2px dashed #cfd8dc;
+            border-radius: 14px;
+            padding: 18px;
+        }
+
+        .upload-card h3 {
+            margin-top: 0;
+            color: #0d47a1;
+            font-size: 1.1rem;
+        }
+
+        input[type="file"] {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .camera-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .small-btn {
+            padding: 10px 14px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            color: white;
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .cam-open { background: #00897b; }
+        .cam-capture { background: #5e35b1; }
+        .cam-close { background: #546e7a; }
+
+        .camera-box {
+            margin-top: 20px;
+            text-align: center;
+            display: none;
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 14px;
+            border: 1px solid #ddd;
+        }
+
+        video, canvas {
+            width: 100%;
+            max-width: 420px;
+            border-radius: 12px;
+            border: 2px solid #ddd;
+            margin-top: 10px;
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+            margin-top: 18px;
+        }
+
+        .preview-card {
+            background: #fafafa;
+            border-radius: 12px;
+            padding: 14px;
+            border: 1px solid #ddd;
+            text-align: center;
+        }
+
+        .preview-card img {
+            width: 100%;
+            max-height: 220px;
+            object-fit: contain;
+            border-radius: 10px;
+            border: 1px solid #ccc;
+            background: #fff;
+        }
+
+        .submit-area {
+            text-align: center;
+            margin-top: 24px;
+        }
+
+        .submit-btn {
+            background: #1565c0;
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            font-size: 1rem;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .submit-btn:hover {
+            background: #0d47a1;
+        }
+
+        .status {
+            margin-top: 16px;
+            text-align: center;
+            font-weight: bold;
+            color: #37474f;
+        }
+
+        .listening {
+            color: #2e7d32;
+        }
+
+        .result-box {
+            margin-top: 28px;
+            background: #f9fbe7;
+            border-left: 6px solid #7cb342;
+            padding: 20px;
+            border-radius: 14px;
+        }
+
+        .result-box h2 {
+            margin-top: 0;
+            color: #33691e;
+        }
+
+        .result-item {
+            margin-bottom: 12px;
+            line-height: 1.6;
+        }
+
+        .safe {
+            color: #2e7d32;
+            font-weight: bold;
+        }
+
+        .warn {
+            color: #c62828;
+            font-weight: bold;
+        }
+
+        .link-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .shop-link {
+            display: inline-block;
+            background: #00897b;
+            color: #fff;
+            text-decoration: none;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        .footer-note {
+            margin-top: 22px;
+            font-size: 0.92rem;
+            color: #555;
+            background: #fff3e0;
+            padding: 12px;
+            border-radius: 10px;
+            border-left: 5px solid #fb8c00;
+        }
+
+        @media (max-width: 768px) {
+            .upload-grid, .preview-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 1.6rem;
+            }
+
+            .container {
+                margin: 12px;
+                padding: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI-Powered Medicine & Prescription Verifier</h1>
+
+        <div class="subheading">
+            Designed for <strong>Senior Citizens</strong>, <strong>Visually Impaired Users</strong>, <strong>Caregivers</strong>, and <strong>Home Users</strong><br>
+            A pre-consumption safety verification tool that checks whether the medicine matches the prescription before use.
+        </div>
+
+        <div class="hero-note">
+            <strong>Main Use Case:</strong> After receiving or buying medicine, and before consuming it, the user can compare the medicine strip/box with the doctor’s prescription to verify medicine name, expiry date, dosage instructions, duration, and match status.
+        </div>
+
+        <div class="instructions-box" id="instructionsBox">
+            <strong>How to Use:</strong><br>
+            1. You can upload medicine and prescription images manually.<br>
+            2. Or use voice-guided camera capture for better accessibility.<br>
+            3. Click <strong>Read Instructions</strong> to hear spoken guidance.<br>
+            4. Click <strong>Start Voice Commands</strong> to begin guided voice flow.<br>
+            5. The system can ask to capture medicine first, then prescription.<br>
+            6. After both are captured, analysis starts automatically.<br>
+            7. Result will be shown and spoken aloud.
+        </div>
+
+        <div class="commands-box">
+            <strong>Voice Commands You Can Say:</strong><br>
+            “yes”, “ok”, “read instructions”, “open medicine camera”, “open prescription camera”, “capture”, “analyze”, “read result”, “stop”, “clear”, “clear all”
+        </div>
+
+        <div class="voice-controls">
+            <button type="button" class="voice-btn read-btn" onclick="readInstructions()">🔊 Read Instructions</button>
+            <button type="button" class="voice-btn start-btn" onclick="startVoiceFlow()">🎤 Start Voice Commands</button>
+            <button type="button" class="voice-btn stop-btn" onclick="stopAllVoiceSystems()">🛑 Stop Voice</button>
+            <button type="button" class="voice-btn result-btn" onclick="readResultAloud()">📢 Read Result</button>
+            <button type="button" class="voice-btn clear-btn" onclick="clearAllData()">🗑 Clear All</button>
+        </div>
+
+        <div class="status" id="voiceStatus">Voice assistant is ready.</div>
+        <div class="status" id="cameraStatus"></div>
+
+        <form method="POST" enctype="multipart/form-data" id="mainForm">
+            {% csrf_token %}
+
+            <input type="hidden" name="medicine_camera_data" id="medicine_camera_data">
+            <input type="hidden" name="prescription_camera_data" id="prescription_camera_data">
+
+            <div class="upload-grid">
+                <div class="upload-card">
+                    <h3>Medicine Image</h3>
+                    <input type="file" name="medicine_image" id="medicine_image" accept="image/*" onchange="previewManualImage(this, 'medicinePreview')">
+
+                    <div class="camera-controls">
+                        <button type="button" class="small-btn cam-open" onclick="openCamera('medicine')">📷 Open Medicine Camera</button>
+                    </div>
+                </div>
+
+                <div class="upload-card">
+                    <h3>Prescription Image</h3>
+                    <input type="file" name="prescription_image" id="prescription_image" accept="image/*" onchange="previewManualImage(this, 'prescriptionPreview')">
+
+                    <div class="camera-controls">
+                        <button type="button" class="small-btn cam-open" onclick="openCamera('prescription')">📷 Open Prescription Camera</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="camera-box" id="cameraBox">
+                <h3 id="cameraTitle">Camera Preview</h3>
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas" style="display:none;"></canvas>
+
+                <div class="camera-controls" style="justify-content:center;">
+                    <button type="button" class="small-btn cam-capture" onclick="captureCurrentImage()">📸 Capture Now</button>
+                    <button type="button" class="small-btn cam-close" onclick="closeCamera()">❌ Close Camera</button>
+                </div>
+            </div>
+
+            <div class="preview-grid">
+                <div class="preview-card">
+                    <h3>Medicine Preview</h3>
+                    <img id="medicinePreview" alt="Medicine Preview">
+                </div>
+
+                <div class="preview-card">
+                    <h3>Prescription Preview</h3>
+                    <img id="prescriptionPreview" alt="Prescription Preview">
+                </div>
+            </div>
+
+            <div class="submit-area">
+                <button type="submit" class="submit-btn" id="analyzeBtn">🔍 Analyze Now</button>
+            </div>
+        </form>
+
+        {% if result %}
+        <div class="result-box" id="resultBox">
+            <h2>Verification Result</h2>
+
+            <div class="result-item">
+                <strong>Status:</strong>
+                {% if result.match_found %}
+                    <span class="safe">{{ result.status_banner }}</span>
+                {% else %}
+                    <span class="warn">{{ result.status_banner }}</span>
+                {% endif %}
+            </div>
+
+            <div class="result-item"><strong>Medicine Name:</strong> {{ result.medicine_name }}</div>
+            <div class="result-item"><strong>Expiry Date:</strong> {{ result.expiry_date }}</div>
+            <div class="result-item"><strong>Dosage Instructions:</strong> {{ result.dosage_info }}</div>
+            <div class="result-item"><strong>Prescription Match:</strong> {{ result.match_status }}</div>
+            <div class="result-item"><strong>Duration:</strong> {{ result.duration }}</div>
+
+            {% if result.was_swapped %}
+            <div class="result-item warn">
+                <strong>Note:</strong> Uploaded images appeared reversed, so the system automatically corrected them before analysis.
+            </div>
+            {% endif %}
+
+            <div class="link-buttons">
+                <a href="{{ result.apollo_link }}" target="_blank" class="shop-link">Apollo Pharmacy</a>
+                <a href="{{ result.tata_1mg_link }}" target="_blank" class="shop-link">Tata 1mg</a>
+            </div>
+
+            <div class="footer-note">
+                <strong>Important:</strong> This is a pre-consumption safety verification support tool. Please verify with a doctor or pharmacist before consuming the medicine.
+            </div>
+
+            <div id="voiceResultText" style="display:none;">{{ result.voice_message }}</div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        const voiceStatus = document.getElementById("voiceStatus");
+        const cameraStatus = document.getElementById("cameraStatus");
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const cameraBox = document.getElementById("cameraBox");
+        const cameraTitle = document.getElementById("cameraTitle");
+        const medicineCameraInput = document.getElementById("medicine_camera_data");
+        const prescriptionCameraInput = document.getElementById("prescription_camera_data");
+        const medicinePreview = document.getElementById("medicinePreview");
+        const prescriptionPreview = document.getElementById("prescriptionPreview");
+        const mainForm = document.getElementById("mainForm");
+
+        let recognition;
+        let stream = null;
+        let currentCaptureType = null;
+        let waitingForCaptureCommand = false;
+        let voiceFlowStarted = false;
+        let awaitingMedicineConfirmation = false;
+        let awaitingPrescriptionConfirmation = false;
+        let hasMedicineCaptured = false;
+        let hasPrescriptionCaptured = false;
+
+        function speakText(text, callback = null) {
+            if (!("speechSynthesis" in window)) {
+                if (callback) callback();
+                return;
+            }
+
+            window.speechSynthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1;
+            utterance.pitch = 1;
+            utterance.lang = "en-US";
+
+            utterance.onend = function () {
+                if (callback) callback();
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function readInstructions() {
+            const text = "Welcome to the AI powered medicine and prescription verifier. This tool is especially useful for senior citizens, visually impaired users, caregivers, and home users. You can upload medicine and prescription images manually, or use voice guided camera capture. Click start voice commands to begin the guided flow. The system will ask to capture medicine first, then prescription, then analyze automatically, and speak the result.";
+            voiceStatus.textContent = "Reading instructions...";
+            speakText(text, function () {
+                voiceStatus.textContent = "Instructions completed.";
+            });
+        }
+
+        function stopAllVoiceSystems() {
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+            }
+
+            if (recognition) {
+                try {
+                    recognition.stop();
+                } catch (e) {}
+            }
+
+            waitingForCaptureCommand = false;
+            awaitingMedicineConfirmation = false;
+            awaitingPrescriptionConfirmation = false;
+            voiceStatus.textContent = "Voice stopped.";
+        }
+
+        function setupRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+            if (!SpeechRecognition) {
+                alert("Speech recognition is not supported in this browser. Please use Google Chrome.");
+                return null;
+            }
+
+            const recog = new SpeechRecognition();
+            recog.lang = "en-US";
+            recog.interimResults = false;
+            recog.continuous = true;
+
+            recog.onstart = function () {
+                voiceStatus.textContent = "Listening for voice commands...";
+                voiceStatus.classList.add("listening");
+            };
+
+            recog.onend = function () {
+                voiceStatus.classList.remove("listening");
+                if (voiceFlowStarted) {
+                    try {
+                        recog.start();
+                    } catch (e) {}
+                }
+            };
+
+            recog.onerror = function (event) {
+                voiceStatus.textContent = "Voice error: " + event.error;
+            };
+
+            recog.onresult = function (event) {
+                const lastResult = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+                voiceStatus.textContent = "Heard: " + lastResult;
+
+                if (lastResult.includes("stop")) {
+                    stopAllVoiceSystems();
+                    return;
+                }
+
+                if (lastResult.includes("read instructions")) {
+                    readInstructions();
+                    return;
+                }
+
+                if (lastResult.includes("read result")) {
+                    readResultAloud();
+                    return;
+                }
+
+                if (lastResult.includes("clear all") || lastResult.includes("clear")) {
+                    clearAllData();
+                    return;
+                }
+
+                if (awaitingMedicineConfirmation && (lastResult.includes("yes") || lastResult.includes("ok"))) {
+                    awaitingMedicineConfirmation = false;
+                    openCamera("medicine");
+                    return;
+                }
+
+                if (awaitingPrescriptionConfirmation && (lastResult.includes("yes") || lastResult.includes("ok"))) {
+                    awaitingPrescriptionConfirmation = false;
+                    openCamera("prescription");
+                    return;
+                }
+
+                if (lastResult.includes("open medicine camera")) {
+                    openCamera("medicine");
+                    return;
+                }
+
+                if (lastResult.includes("open prescription camera")) {
+                    openCamera("prescription");
+                    return;
+                }
+
+                if (waitingForCaptureCommand && lastResult.includes("capture")) {
+                    waitingForCaptureCommand = false;
+                    captureCurrentImage();
+                    return;
+                }
+
+                if (lastResult.includes("analyze")) {
+                    submitAnalysis();
+                    return;
+                }
+            };
+
+            return recog;
+        }
+
+        function startVoiceFlow() {
+            if (!recognition) {
+                recognition = setupRecognition();
+                if (!recognition) return;
+            }
+
+            voiceFlowStarted = true;
+
+            try {
+                recognition.start();
+            } catch (e) {}
+
+            voiceStatus.textContent = "Voice assistant started.";
+
+            speakText("Voice assistant started. Shall I turn on the camera to capture medicine?", function () {
+                awaitingMedicineConfirmation = true;
+            });
+        }
+
+        function previewManualImage(input, previewId) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                document.getElementById(previewId).src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+
+            if (previewId === "medicinePreview") {
+                hasMedicineCaptured = true;
+            }
+
+            if (previewId === "prescriptionPreview") {
+                hasPrescriptionCaptured = true;
+            }
+        }
+
+        async function openCamera(type) {
+            currentCaptureType = type;
+            cameraTitle.textContent = type === "medicine" ? "Medicine Camera" : "Prescription Camera";
+            cameraBox.style.display = "block";
+
+            if (stream) {
+                closeCamera(false);
+            }
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" },
+                    audio: false
+                });
+
+                video.srcObject = stream;
+
+                cameraStatus.textContent = "Camera is ON. Auto capture will happen in 10 seconds. Or say capture.";
+                speakText("Camera is on. Auto capture will happen in 10 seconds. Or say capture now.");
+
+                waitingForCaptureCommand = true;
+
+                setTimeout(() => {
+                    if (stream && waitingForCaptureCommand) {
+                        waitingForCaptureCommand = false;
+                        captureCurrentImage();
+                    }
+                }, 10000);
+
+            } catch (error) {
+                cameraStatus.textContent = "Unable to access camera. Please allow camera permission.";
+                speakText("Unable to access camera. Please allow camera permission.");
+            }
+        }
+
+        function captureCurrentImage() {
+            if (!stream || !currentCaptureType) return;
+
+            const context = canvas.getContext("2d");
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageData = canvas.toDataURL("image/jpeg", 0.9);
+
+            if (currentCaptureType === "medicine") {
+                medicineCameraInput.value = imageData;
+                medicinePreview.src = imageData;
+                hasMedicineCaptured = true;
+
+                cameraStatus.textContent = "Medicine image captured successfully.";
+                speakText("Medicine image captured successfully. Shall I turn on the camera to capture prescription?", function () {
+                    closeCamera(false);
+                    awaitingPrescriptionConfirmation = true;
+                });
+
+            } else if (currentCaptureType === "prescription") {
+                prescriptionCameraInput.value = imageData;
+                prescriptionPreview.src = imageData;
+                hasPrescriptionCaptured = true;
+
+                cameraStatus.textContent = "Prescription image captured successfully.";
+                speakText("Prescription image captured successfully. Analysis will start automatically now.", function () {
+                    closeCamera(false);
+                    submitAnalysis();
+                });
+            }
+        }
+
+        function closeCamera(clearStatus = true) {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+
+            video.srcObject = null;
+            waitingForCaptureCommand = false;
+            currentCaptureType = null;
+            cameraBox.style.display = "none";
+
+            if (clearStatus) {
+                cameraStatus.textContent = "Camera closed.";
+            }
+        }
+
+        function submitAnalysis() {
+            if (!(hasMedicineCaptured || document.getElementById("medicine_image").files.length) ||
+                !(hasPrescriptionCaptured || document.getElementById("prescription_image").files.length)) {
+                speakText("Both medicine and prescription images are required before analysis.");
+                voiceStatus.textContent = "Please provide both medicine and prescription images.";
+                return;
+            }
+
+            voiceStatus.textContent = "Analyzing images...";
+            speakText("Analyzing images now.");
+            mainForm.submit();
+        }
+
+        function readResultAloud() {
+            const resultTextElement = document.getElementById("voiceResultText");
+
+            if (!resultTextElement) {
+                speakText("No result available yet. Please analyze first.");
+                return;
+            }
+
+            const resultText = resultTextElement.textContent.trim();
+
+            if (!resultText) {
+                speakText("No result available yet. Please analyze first.");
+                return;
+            }
+
+            voiceStatus.textContent = "Reading result...";
+            speakText(resultText, function () {
+                voiceStatus.textContent = "Result reading completed.";
+            });
+        }
+
+        function clearAllData() {
+            stopAllVoiceSystems();
+            closeCamera(false);
+
+            // Clear file inputs
+            document.getElementById("medicine_image").value = "";
+            document.getElementById("prescription_image").value = "";
+
+            // Clear hidden camera data
+            medicineCameraInput.value = "";
+            prescriptionCameraInput.value = "";
+
+            // Clear previews
+            medicinePreview.src = "";
+            prescriptionPreview.src = "";
+
+            // Reset flags
+            hasMedicineCaptured = false;
+            hasPrescriptionCaptured = false;
+            voiceFlowStarted = false;
+            awaitingMedicineConfirmation = false;
+            awaitingPrescriptionConfirmation = false;
+            waitingForCaptureCommand = false;
+
+            // Clear status
+            voiceStatus.textContent = "All data cleared.";
+            cameraStatus.textContent = "";
+
+            // Hide previous result visually by reloading clean page
+            speakText("Clear all completed. All uploaded images, captured data, and results are removed. Restarting guided instructions.", function () {
+                window.location.href = window.location.pathname;
+            });
+        }
+
+        // Optional: if result exists after POST, automatically speak it once
+        window.addEventListener("load", function () {
+            const resultTextElement = document.getElementById("voiceResultText");
+            if (resultTextElement && resultTextElement.textContent.trim()) {
+                setTimeout(() => {
+                    speakText("Analysis completed. You can click read result to hear the result again.");
+                }, 800);
+            }
+        });
+    </script>
+</body>
+</html>
