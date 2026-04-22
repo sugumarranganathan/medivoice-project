@@ -330,7 +330,7 @@
             3. Click <strong>Start Voice Commands</strong> to begin guided flow.<br>
             4. The system can ask to capture medicine first, then prescription.<br>
             5. After both are captured, analysis starts automatically.<br>
-            6. The result will be shown and can be spoken aloud.
+            6. The result will be shown and automatically spoken aloud.
         </div>
 
         <div class="commands-box">
@@ -490,7 +490,7 @@
         }
 
         function readInstructions() {
-            const text = "Welcome to the AI powered medicine and prescription verifier. This tool is especially useful for senior citizens, visually impaired users, caregivers, and home users. You can upload medicine and prescription images manually, or use voice guided camera capture. Click start voice commands to begin the guided flow. The system will ask to capture medicine first, then prescription, then analyze automatically, and the result can be read aloud.";
+            const text = "Welcome to the AI powered medicine and prescription verifier. This tool is especially useful for senior citizens, visually impaired users, caregivers, and home users. You can upload medicine and prescription images manually, or use voice guided camera capture. Click start voice commands to begin the guided flow. The system will ask to capture medicine first, then prescription, then analyze automatically, and the result will be spoken aloud automatically.";
             voiceStatus.textContent = "Reading instructions...";
             speakText(text, function () {
                 voiceStatus.textContent = "Instructions completed.";
@@ -705,7 +705,7 @@
 
             const context = canvas.getContext("2d");
 
-            // IMPORTANT: lower resolution to reduce Render memory usage
+            // Render-safe lower resolution
             const targetWidth = 640;
             const targetHeight = 480;
 
@@ -714,7 +714,7 @@
 
             context.drawImage(video, 0, 0, targetWidth, targetHeight);
 
-            // IMPORTANT: lower JPEG quality to reduce base64 size
+            // Render-safe lower quality image
             const imageData = canvas.toDataURL("image/jpeg", 0.65);
 
             if (currentCaptureType === "medicine") {
@@ -833,12 +833,19 @@
             });
         }
 
+        // AUTO READ RESULT AFTER ANALYZE
         window.addEventListener("load", function () {
             const resultTextElement = document.getElementById("voiceResultText");
+
             if (resultTextElement && resultTextElement.textContent.trim()) {
+                const resultText = resultTextElement.textContent.trim();
+
                 setTimeout(() => {
-                    speakText("Analysis completed. You can click read result to hear the result.");
-                }, 800);
+                    voiceStatus.textContent = "Reading result automatically...";
+                    speakText(resultText, function () {
+                        voiceStatus.textContent = "Result read completed.";
+                    });
+                }, 1200);
             }
         });
     </script>
