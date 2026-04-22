@@ -14,12 +14,12 @@
         }
 
         .container {
-            max-width: 900px;
-            margin: 30px auto;
+            max-width: 950px;
+            margin: 24px auto;
             background: #ffffff;
             border-radius: 18px;
             box-shadow: 0 8px 25px rgba(0,0,0,0.12);
-            padding: 28px;
+            padding: 24px;
         }
 
         h1 {
@@ -27,14 +27,15 @@
             color: #1565c0;
             margin-bottom: 10px;
             font-size: 2rem;
+            line-height: 1.35;
         }
 
         .subheading {
             text-align: center;
             font-size: 1rem;
             color: #444;
-            margin-bottom: 25px;
-            line-height: 1.6;
+            margin-bottom: 20px;
+            line-height: 1.7;
         }
 
         .hero-note {
@@ -42,8 +43,9 @@
             border-left: 6px solid #43a047;
             padding: 14px;
             border-radius: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             font-size: 0.98rem;
+            line-height: 1.6;
         }
 
         .instructions-box {
@@ -51,7 +53,7 @@
             border-left: 6px solid #1e88e5;
             padding: 14px;
             border-radius: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             font-size: 0.97rem;
             line-height: 1.7;
         }
@@ -61,7 +63,7 @@
             border-left: 6px solid #f9a825;
             padding: 14px;
             border-radius: 10px;
-            margin-bottom: 22px;
+            margin-bottom: 20px;
             font-size: 0.96rem;
             line-height: 1.7;
         }
@@ -119,9 +121,16 @@
             font-size: 1.1rem;
         }
 
+        .helper-text {
+            font-size: 0.9rem;
+            color: #555;
+            margin-bottom: 10px;
+            line-height: 1.5;
+        }
+
         input[type="file"] {
             width: 100%;
-            margin-top: 10px;
+            margin-top: 8px;
         }
 
         .camera-controls {
@@ -161,6 +170,7 @@
             border-radius: 12px;
             border: 2px solid #ddd;
             margin-top: 10px;
+            background: #000;
         }
 
         .preview-grid {
@@ -185,6 +195,7 @@
             border-radius: 10px;
             border: 1px solid #ccc;
             background: #fff;
+            min-height: 140px;
         }
 
         .submit-area {
@@ -208,10 +219,11 @@
         }
 
         .status {
-            margin-top: 16px;
+            margin-top: 12px;
             text-align: center;
             font-weight: bold;
             color: #37474f;
+            line-height: 1.6;
         }
 
         .listening {
@@ -233,7 +245,7 @@
 
         .result-item {
             margin-bottom: 12px;
-            line-height: 1.6;
+            line-height: 1.7;
         }
 
         .safe {
@@ -271,6 +283,7 @@
             padding: 12px;
             border-radius: 10px;
             border-left: 5px solid #fb8c00;
+            line-height: 1.6;
         }
 
         @media (max-width: 768px) {
@@ -279,19 +292,27 @@
             }
 
             h1 {
-                font-size: 1.6rem;
+                font-size: 1.5rem;
             }
 
             .container {
                 margin: 12px;
-                padding: 18px;
+                padding: 16px;
+            }
+
+            .voice-controls {
+                flex-direction: column;
+            }
+
+            .voice-btn {
+                width: 100%;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>AI-Powered Medicine & Prescription Verifier</h1>
+        <h1>AI-Powered Medicine & Prescription Verifier<br>for Senior Citizens and Visually Impaired Users</h1>
 
         <div class="subheading">
             Designed for <strong>Senior Citizens</strong>, <strong>Visually Impaired Users</strong>, <strong>Caregivers</strong>, and <strong>Home Users</strong><br>
@@ -299,18 +320,17 @@
         </div>
 
         <div class="hero-note">
-            <strong>Main Use Case:</strong> After receiving or buying medicine, and before consuming it, the user can compare the medicine strip/box with the doctor’s prescription to verify medicine name, expiry date, dosage instructions, duration, and match status.
+            <strong>Main Use Case:</strong> After receiving or buying medicine, and before consuming it, the user can compare the medicine strip/box with the doctor’s prescription to verify medicine name, expiry date, dosage instructions, duration, and prescription match status.
         </div>
 
         <div class="instructions-box" id="instructionsBox">
             <strong>How to Use:</strong><br>
-            1. You can upload medicine and prescription images manually.<br>
-            2. Or use voice-guided camera capture for better accessibility.<br>
-            3. Click <strong>Read Instructions</strong> to hear spoken guidance.<br>
-            4. Click <strong>Start Voice Commands</strong> to begin guided voice flow.<br>
-            5. The system can ask to capture medicine first, then prescription.<br>
-            6. After both are captured, analysis starts automatically.<br>
-            7. Result will be shown and spoken aloud.
+            1. Upload medicine and prescription images manually, or use voice-guided camera capture.<br>
+            2. Click <strong>Read Instructions</strong> to hear spoken guidance.<br>
+            3. Click <strong>Start Voice Commands</strong> to begin guided flow.<br>
+            4. The system can ask to capture medicine first, then prescription.<br>
+            5. After both are captured, analysis starts automatically.<br>
+            6. The result will be shown and can be spoken aloud.
         </div>
 
         <div class="commands-box">
@@ -338,6 +358,7 @@
             <div class="upload-grid">
                 <div class="upload-card">
                     <h3>Medicine Image</h3>
+                    <div class="helper-text">Upload manually or use camera capture. Camera capture is optimized for Render free hosting.</div>
                     <input type="file" name="medicine_image" id="medicine_image" accept="image/*" onchange="previewManualImage(this, 'medicinePreview')">
 
                     <div class="camera-controls">
@@ -347,6 +368,7 @@
 
                 <div class="upload-card">
                     <h3>Prescription Image</h3>
+                    <div class="helper-text">Upload manually or use camera capture. Please keep the prescription clear and readable.</div>
                     <input type="file" name="prescription_image" id="prescription_image" accept="image/*" onchange="previewManualImage(this, 'prescriptionPreview')">
 
                     <div class="camera-controls">
@@ -357,7 +379,7 @@
 
             <div class="camera-box" id="cameraBox">
                 <h3 id="cameraTitle">Camera Preview</h3>
-                <video id="video" autoplay playsinline></video>
+                <video id="video" autoplay playsinline muted></video>
                 <canvas id="canvas" style="display:none;"></canvas>
 
                 <div class="camera-controls" style="justify-content:center;">
@@ -383,41 +405,42 @@
             </div>
         </form>
 
-        {% if result %}
+        {% if status %}
         <div class="result-box" id="resultBox">
             <h2>Verification Result</h2>
 
             <div class="result-item">
                 <strong>Status:</strong>
-                {% if result.match_found %}
-                    <span class="safe">{{ result.status_banner }}</span>
+                {% if "SAFE" in status %}
+                    <span class="safe">{{ status }}</span>
                 {% else %}
-                    <span class="warn">{{ result.status_banner }}</span>
+                    <span class="warn">{{ status }}</span>
                 {% endif %}
             </div>
 
-            <div class="result-item"><strong>Medicine Name:</strong> {{ result.medicine_name }}</div>
-            <div class="result-item"><strong>Expiry Date:</strong> {{ result.expiry_date }}</div>
-            <div class="result-item"><strong>Dosage Instructions:</strong> {{ result.dosage_info }}</div>
-            <div class="result-item"><strong>Prescription Match:</strong> {{ result.match_status }}</div>
-            <div class="result-item"><strong>Duration:</strong> {{ result.duration }}</div>
-
-            {% if result.was_swapped %}
-            <div class="result-item warn">
-                <strong>Note:</strong> Uploaded images appeared reversed, so the system automatically corrected them before analysis.
-            </div>
-            {% endif %}
+            <div class="result-item"><strong>Medicine Name:</strong> {{ medicine_name }}</div>
+            <div class="result-item"><strong>Expiry Date:</strong> {{ expiry_date }}</div>
+            <div class="result-item"><strong>Dosage Instructions:</strong> {{ dosage_instructions }}</div>
+            <div class="result-item"><strong>Prescription Match:</strong> {{ prescription_match_status }}</div>
+            <div class="result-item"><strong>Duration:</strong> {{ duration }}</div>
 
             <div class="link-buttons">
-                <a href="{{ result.apollo_link }}" target="_blank" class="shop-link">Apollo Pharmacy</a>
-                <a href="{{ result.tata_1mg_link }}" target="_blank" class="shop-link">Tata 1mg</a>
+                <a href="https://www.apollopharmacy.in/search-medicines/{{ medicine_name|urlencode }}" target="_blank" class="shop-link">Apollo Pharmacy</a>
+                <a href="https://www.1mg.com/search/all?name={{ medicine_name|urlencode }}" target="_blank" class="shop-link">Tata 1mg</a>
             </div>
 
             <div class="footer-note">
-                <strong>Important:</strong> This is a pre-consumption safety verification support tool. Please verify with a doctor or pharmacist before consuming the medicine.
+                <strong>Important:</strong> This is a pre-consumption safety verification support tool. Please confirm medicine name, expiry date, and dosage with a doctor or pharmacist before consuming the medicine.
             </div>
 
-            <div id="voiceResultText" style="display:none;">{{ result.voice_message }}</div>
+            <div id="voiceResultText" style="display:none;">
+                {{ status }}.
+                Medicine Name: {{ medicine_name }}.
+                Expiry Date: {{ expiry_date }}.
+                Dosage Instructions: {{ dosage_instructions }}.
+                Prescription Match Status: {{ prescription_match_status }}.
+                Duration: {{ duration }}.
+            </div>
         </div>
         {% endif %}
     </div>
@@ -444,6 +467,7 @@
         let awaitingPrescriptionConfirmation = false;
         let hasMedicineCaptured = false;
         let hasPrescriptionCaptured = false;
+        let autoCaptureTimer = null;
 
         function speakText(text, callback = null) {
             if (!("speechSynthesis" in window)) {
@@ -466,7 +490,7 @@
         }
 
         function readInstructions() {
-            const text = "Welcome to the AI powered medicine and prescription verifier. This tool is especially useful for senior citizens, visually impaired users, caregivers, and home users. You can upload medicine and prescription images manually, or use voice guided camera capture. Click start voice commands to begin the guided flow. The system will ask to capture medicine first, then prescription, then analyze automatically, and speak the result.";
+            const text = "Welcome to the AI powered medicine and prescription verifier. This tool is especially useful for senior citizens, visually impaired users, caregivers, and home users. You can upload medicine and prescription images manually, or use voice guided camera capture. Click start voice commands to begin the guided flow. The system will ask to capture medicine first, then prescription, then analyze automatically, and the result can be read aloud.";
             voiceStatus.textContent = "Reading instructions...";
             speakText(text, function () {
                 voiceStatus.textContent = "Instructions completed.";
@@ -484,10 +508,18 @@
                 } catch (e) {}
             }
 
+            voiceFlowStarted = false;
             waitingForCaptureCommand = false;
             awaitingMedicineConfirmation = false;
             awaitingPrescriptionConfirmation = false;
+
+            if (autoCaptureTimer) {
+                clearTimeout(autoCaptureTimer);
+                autoCaptureTimer = null;
+            }
+
             voiceStatus.textContent = "Voice stopped.";
+            voiceStatus.classList.remove("listening");
         }
 
         function setupRecognition() {
@@ -569,6 +601,10 @@
 
                 if (waitingForCaptureCommand && lastResult.includes("capture")) {
                     waitingForCaptureCommand = false;
+                    if (autoCaptureTimer) {
+                        clearTimeout(autoCaptureTimer);
+                        autoCaptureTimer = null;
+                    }
                     captureCurrentImage();
                     return;
                 }
@@ -631,20 +667,29 @@
 
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment" },
+                    video: {
+                        facingMode: { ideal: "environment" },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
                     audio: false
                 });
 
                 video.srcObject = stream;
 
                 cameraStatus.textContent = "Camera is ON. Auto capture will happen in 10 seconds. Or say capture.";
-                speakText("Camera is on. Auto capture will happen in 10 seconds. Or say capture now.");
+                speakText("Camera is on. Auto capture will happen in 10 seconds. Or say capture.");
 
                 waitingForCaptureCommand = true;
 
-                setTimeout(() => {
+                if (autoCaptureTimer) {
+                    clearTimeout(autoCaptureTimer);
+                }
+
+                autoCaptureTimer = setTimeout(() => {
                     if (stream && waitingForCaptureCommand) {
                         waitingForCaptureCommand = false;
+                        autoCaptureTimer = null;
                         captureCurrentImage();
                     }
                 }, 10000);
@@ -659,11 +704,18 @@
             if (!stream || !currentCaptureType) return;
 
             const context = canvas.getContext("2d");
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            const imageData = canvas.toDataURL("image/jpeg", 0.9);
+            // IMPORTANT: lower resolution to reduce Render memory usage
+            const targetWidth = 640;
+            const targetHeight = 480;
+
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+
+            context.drawImage(video, 0, 0, targetWidth, targetHeight);
+
+            // IMPORTANT: lower JPEG quality to reduce base64 size
+            const imageData = canvas.toDataURL("image/jpeg", 0.65);
 
             if (currentCaptureType === "medicine") {
                 medicineCameraInput.value = imageData;
@@ -671,6 +723,7 @@
                 hasMedicineCaptured = true;
 
                 cameraStatus.textContent = "Medicine image captured successfully.";
+
                 speakText("Medicine image captured successfully. Shall I turn on the camera to capture prescription?", function () {
                     closeCamera(false);
                     awaitingPrescriptionConfirmation = true;
@@ -682,14 +735,22 @@
                 hasPrescriptionCaptured = true;
 
                 cameraStatus.textContent = "Prescription image captured successfully.";
+
                 speakText("Prescription image captured successfully. Analysis will start automatically now.", function () {
                     closeCamera(false);
-                    submitAnalysis();
+                    setTimeout(() => {
+                        submitAnalysis();
+                    }, 600);
                 });
             }
         }
 
         function closeCamera(clearStatus = true) {
+            if (autoCaptureTimer) {
+                clearTimeout(autoCaptureTimer);
+                autoCaptureTimer = null;
+            }
+
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
@@ -706,8 +767,13 @@
         }
 
         function submitAnalysis() {
-            if (!(hasMedicineCaptured || document.getElementById("medicine_image").files.length) ||
-                !(hasPrescriptionCaptured || document.getElementById("prescription_image").files.length)) {
+            const medicineFileSelected = document.getElementById("medicine_image").files.length > 0;
+            const prescriptionFileSelected = document.getElementById("prescription_image").files.length > 0;
+
+            const medicineReady = hasMedicineCaptured || medicineFileSelected;
+            const prescriptionReady = hasPrescriptionCaptured || prescriptionFileSelected;
+
+            if (!medicineReady || !prescriptionReady) {
                 speakText("Both medicine and prescription images are required before analysis.");
                 voiceStatus.textContent = "Please provide both medicine and prescription images.";
                 return;
@@ -743,19 +809,15 @@
             stopAllVoiceSystems();
             closeCamera(false);
 
-            // Clear file inputs
             document.getElementById("medicine_image").value = "";
             document.getElementById("prescription_image").value = "";
 
-            // Clear hidden camera data
             medicineCameraInput.value = "";
             prescriptionCameraInput.value = "";
 
-            // Clear previews
             medicinePreview.src = "";
             prescriptionPreview.src = "";
 
-            // Reset flags
             hasMedicineCaptured = false;
             hasPrescriptionCaptured = false;
             voiceFlowStarted = false;
@@ -763,22 +825,19 @@
             awaitingPrescriptionConfirmation = false;
             waitingForCaptureCommand = false;
 
-            // Clear status
             voiceStatus.textContent = "All data cleared.";
             cameraStatus.textContent = "";
 
-            // Hide previous result visually by reloading clean page
-            speakText("Clear all completed. All uploaded images, captured data, and results are removed. Restarting guided instructions.", function () {
+            speakText("Clear all completed. All uploaded images, captured data, and results are removed. Restarting the page.", function () {
                 window.location.href = window.location.pathname;
             });
         }
 
-        // Optional: if result exists after POST, automatically speak it once
         window.addEventListener("load", function () {
             const resultTextElement = document.getElementById("voiceResultText");
             if (resultTextElement && resultTextElement.textContent.trim()) {
                 setTimeout(() => {
-                    speakText("Analysis completed. You can click read result to hear the result again.");
+                    speakText("Analysis completed. You can click read result to hear the result.");
                 }, 800);
             }
         });
