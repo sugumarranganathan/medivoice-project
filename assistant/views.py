@@ -1,105 +1,109 @@
-import re
 import base64
-from io import BytesIO
+import io
+import re
+from difflib import SequenceMatcher
+from datetime import datetime
 
 from django.shortcuts import render
-from django.core.files.uploadedfile import InMemoryUploadedFile
-
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageFilter, ImageOps
 import pytesseract
-from difflib import SequenceMatcher
 
-# If Tesseract is not in PATH, uncomment and set your path:
+
+# =========================================================
+# OPTIONAL TESSERACT PATH (UNCOMMENT ONLY IF NEEDED)
+# =========================================================
+# Example for Windows:
 # pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
 # =========================================================
-# IMAGE HELPERS (UPLOAD + BASE64 CAMERA SUPPORT)
+# KNOWN MEDICINES (PROJECT-SPECIFIC)
+# Add more medicines here later if needed
 # =========================================================
-def base64_to_uploaded_file(data_url, filename="captured.jpg"):
+KNOWN_MEDICINES = [
+    "gudcef",
+    "monticope",
+    "chericof",
+]
+
+
+# =========================================================
+# HELPERS
+# =========================================================
+def similarity(a, b):
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+
+def normalize_text(text):
+    if not text:
+        return ""
+    return re.sub(r"[^a-z0-9/\-\s]", " ", text.lower())
+
+
+def decode_base64_image(data_url):
     """
-    Convert base64 image data URL from browser camera capture
-    into an in-memory uploaded file for PIL + OCR processing.
+    Convert base64 data URL from camera capture into PIL image
     """
     try:
-        if not data_url:
+        if not data_url or "," not in data_url:
             return None
 
-        if ";base64," not in data_url:
-            return None
-
-        header, encoded = data_url.split(";base64,", 1)
-        binary_data = base64.b64decode(encoded)
-
-        file_obj = BytesIO(binary_data)
-        file_size = len(binary_data)
-
-        uploaded = InMemoryUploadedFile(
-            file=file_obj,
-            field_name=None,
-            name=filename,
-            content_type="image/jpeg",
-            size=file_size,
-            charset=None
-        )
-        return uploaded
+        header, encoded = data_url.split(",", 1)
+        image_data = base64.b64decode(encoded)
+        return Image.open(io.BytesIO(image_data)).convert("RGB")
     except Exception:
         return None
 
 
-# =========================================================
-# OCR HELPERS
-# =========================================================
-def preprocess_for_ocr(img):
+def load_uploaded_image(uploaded_file):
     """
-    Stronger preprocessing for better OCR on medicine strips
-    and prescriptions.
+    Convert uploaded Django file into PIL image
     """
-    # Resize larger
-    img = img.resize((img.width * 3, img.height * 3))
-
-    # Convert to grayscale
-    img = img.convert("L")
-
-    # Sharpen
-    img = img.filter(ImageFilter.SHARPEN)
-
-    # Increase contrast
-    enhancer = ImageEnhance.Contrast(img)
-    img = enhancer.enhance(2.0)
-
-    return img
+    try:
+        return Image.open(uploaded_file).convert("RGB")
+    except Exception:
+        return None
 
 
 def threshold_image(img, threshold=160):
     """
-    Binary threshold for OCR improvement.
+    Convert grayscale image into black/white threshold image
     """
     return img.point(lambda p: 255 if p > threshold else 0)
 
 
-def extract_text_from_image(uploaded_file):
+# =========================================================
+# FAST OCR (STABLE + FASTER)
+# =========================================================
+def extract_text_from_pil_image(img):
     """
-    OCR text from uploaded image with strong preprocessing.
-    Tries multiple OCR modes and returns the best result.
+    Faster OCR version for Chromebook:
+    - 2 image variants only
+    - 2 Tesseract configs only
+    - much faster than old version
     """
     try:
-        uploaded_file.seek(0)
-        img = Image.open(uploaded_file).convert("RGB")
+        if img is None:
+            return ""
 
-        processed = preprocess_for_ocr(img)
+        # Resize (2x is enough and faster than 3x/4x)
+        img = img.resize((img.width * 2, img.height * 2))
 
+        # Auto contrast + sharpen
+        gray = ImageOps.grayscale(img)
+        gray = ImageOps.autocontrast(gray)
+        gray = gray.filter(ImageFilter.SHARPEN)
+
+        # Only 2 variants for speed
         variants = [
-            processed,
-            threshold_image(processed, 140),
-            threshold_image(processed, 160),
-            threshold_image(processed, 180),
+            gray,
+            threshold_image(gray, 160),
         ]
 
+        # Only 2 configs for speed
         configs = [
             r'--oem 3 --psm 6',
             r'--oem 3 --psm 11',
-            r'--oem 3 --psm 4',
         ]
 
         best_text = ""
@@ -109,465 +113,304 @@ def extract_text_from_image(uploaded_file):
             for config in configs:
                 try:
                     text = pytesseract.image_to_string(variant, config=config).strip()
-                    score = len(re.sub(r"\s+", "", text))
+                    score = len(text)
                     if score > best_score:
                         best_text = text
                         best_score = score
                 except Exception:
-                    pass
+                    continue
 
         return best_text.strip()
+
     except Exception:
         return ""
-
-
-def clean_text(text):
-    if not text:
-        return ""
-    text = text.replace("\r", "\n")
-    text = re.sub(r"[ \t]+", " ", text)
-    return text.strip()
-
-
-def normalize_for_match(text):
-    """
-    Lowercase + remove non-alphanumeric for stronger fuzzy compare.
-    """
-    text = text.lower()
-    text = re.sub(r'[^a-z0-9]+', '', text)
-    return text
-
-
-def similarity(a, b):
-    return SequenceMatcher(None, normalize_for_match(a), normalize_for_match(b)).ratio()
 
 
 # =========================================================
 # MEDICINE DETECTION
 # =========================================================
-KNOWN_MEDICINES = [
-    "Monticope",
-    "Gudcef 200",
-    "Chericof Syrup",
-]
-
-
-def detect_medicine_name(medicine_text):
+def detect_medicine_name(text):
     """
-    Detect medicine name from uploaded medicine image text.
-    Stronger fuzzy logic for OCR mistakes.
+    Detect medicine name from OCR text using:
+    - direct contains
+    - fuzzy matching
     """
-    t = medicine_text.lower()
+    if not text:
+        return "Not detected"
 
-    # Strong keyword-based detection
-    if "monticope" in t or similarity(t, "monticope") > 0.30:
-        return "Monticope"
+    t = normalize_text(text)
 
-    if "gudcef" in t or "gudcef 200" in t or "cefpodoxime" in t or similarity(t, "gudcef") > 0.30:
-        return "Gudcef 200"
+    # Direct match first
+    for med in KNOWN_MEDICINES:
+        if med in t:
+            return med.capitalize()
 
-    if "chericof" in t or similarity(t, "chericof") > 0.30:
-        return "Chericof Syrup"
+    # Fuzzy word-level match
+    words = re.findall(r"[a-z0-9]+", t)
 
-    # Fallback fuzzy scan word by word
-    words = re.findall(r"[A-Za-z0-9]+", medicine_text)
-    joined_words = " ".join(words)
-
-    best_name = None
+    best_match = None
     best_score = 0
 
-    for name in KNOWN_MEDICINES:
-        score1 = similarity(t, name)
-        score2 = similarity(joined_words, name)
+    for word in words:
+        for med in KNOWN_MEDICINES:
+            score = similarity(word, med)
+            if score > best_score:
+                best_score = score
+                best_match = med
 
-        # Compare each word too
-        word_scores = [similarity(w, name) for w in words] if words else [0]
-        score3 = max(word_scores)
+    # Lower threshold for OCR mistakes
+    if best_match and best_score >= 0.30:
+        return best_match.capitalize()
 
-        score = max(score1, score2, score3)
-
-        if score > best_score:
-            best_score = score
-            best_name = name
-
-    if best_score > 0.26:
-        return best_name
-
-    return "Medicine name not detected"
+    return "Not detected"
 
 
-def extract_expiry_date(medicine_text, medicine_name):
+# =========================================================
+# EXPIRY DATE EXTRACTION
+# =========================================================
+def extract_expiry_date(text):
     """
-    Extract expiry date from medicine image text.
-    Supports multiple formats.
+    Extract expiry date from medicine strip OCR text
+    Supports:
+    - 09/2028
+    - 09-2028
+    - EXP 09/2028
+    - 09 2028
     """
-    text = medicine_text.upper()
+    if not text:
+        return "Not found"
 
     patterns = [
-        r'EXP(?:IRY)?[:\s\-]*([0-1]?\d[\/\-]\d{4})',      # EXP 09/2028
-        r'EXP(?:IRY)?[:\s\-]*([0-1]?\d[\/\-]\d{2})',      # EXP 09/28
-        r'EXPIRES?[:\s\-]*([0-1]?\d[\/\-]\d{4})',
-        r'EXPIRES?[:\s\-]*([0-1]?\d[\/\-]\d{2})',
-        r'\b([0-1]?\d[\/\-]\d{4})\b',                     # 09/2028
-        r'\b([0-1]?\d[\/\-]\d{2})\b',                     # 09/28
-        r'\b([A-Z]{3}[\/\-]\d{4})\b',                     # SEP/2028
-        r'\b([A-Z]{3}[\/\-]\d{2})\b',                     # SEP/28
+        r"(?:exp|expiry|exp date|expires)?\s*[:\-]?\s*(\b\d{2}[\/\-]\d{4}\b)",
+        r"(?:exp|expiry|exp date|expires)?\s*[:\-]?\s*(\b\d{2}\s\d{4}\b)",
     ]
 
     for pattern in patterns:
-        match = re.search(pattern, text)
+        match = re.search(pattern, text.lower())
         if match:
-            return match.group(1).replace("-", "/")
+            value = match.group(1).strip().replace(" ", "/")
+            return value
 
-    # Demo fallback
-    if medicine_name == "Monticope":
-        return "09/2028"
-    if medicine_name == "Gudcef 200":
-        return "06/2029"
-    if medicine_name == "Chericof Syrup":
-        return "Expiry date not clearly detected"
-
-    return "Expiry date not clearly detected"
+    return "Not found"
 
 
 # =========================================================
-# PRESCRIPTION ANALYSIS
+# CHECK EXPIRY STATUS
 # =========================================================
-def extract_duration(prescription_text):
+def is_expired(expiry_text):
     """
-    Extract duration like x 5 days or 5 days.
+    Check if MM/YYYY is expired
     """
-    text = prescription_text.lower()
+    try:
+        if expiry_text == "Not found":
+            return False
 
-    match = re.search(r'x\s*(\d+)\s*days?', text)
-    if match:
-        return f"{match.group(1)} days"
+        cleaned = expiry_text.replace("-", "/").strip()
+        month, year = cleaned.split("/")
+        month = int(month)
+        year = int(year)
 
-    match = re.search(r'(\d+)\s*days?', text)
-    if match:
-        return f"{match.group(1)} days"
+        today = datetime.today()
+        current_month = today.month
+        current_year = today.year
 
-    # Demo fallback
-    return "5 days"
-
-
-def split_prescription_lines(prescription_text):
-    lines = []
-    for line in prescription_text.splitlines():
-        line = line.strip()
-        if line:
-            lines.append(line)
-    return lines
+        if year < current_year:
+            return True
+        if year == current_year and month < current_month:
+            return True
+        return False
+    except Exception:
+        return False
 
 
-def line_contains_medicine(line, medicine_name):
+# =========================================================
+# PRESCRIPTION MATCH
+# =========================================================
+def medicine_in_text(medicine_name, text):
     """
-    Check if a prescription line belongs to the detected medicine.
+    Check whether medicine name exists in prescription OCR text
     """
-    l = line.lower()
+    if not medicine_name or medicine_name == "Not detected" or not text:
+        return False
 
-    if medicine_name == "Monticope":
-        if "monticope" in l:
-            return True
-        if similarity(l, "monticope") > 0.30:
-            return True
+    med = medicine_name.lower()
+    t = normalize_text(text)
 
-    elif medicine_name == "Gudcef 200":
-        if "gudcef" in l or "gudcef 200" in l or "cefpodoxime" in l:
-            return True
-        if similarity(l, "gudcef") > 0.30:
-            return True
+    if med in t:
+        return True
 
-    elif medicine_name == "Chericof Syrup":
-        if "chericof" in l:
-            return True
-        if similarity(l, "chericof") > 0.30:
+    words = re.findall(r"[a-z0-9]+", t)
+    for word in words:
+        if similarity(word, med) >= 0.30:
             return True
 
     return False
 
 
-def extract_matching_prescription_line(prescription_text, medicine_name):
+# =========================================================
+# DOSAGE EXTRACTION
+# =========================================================
+def extract_dosage_info(medicine_name, prescription_text):
     """
-    Find the exact line in prescription that belongs to the uploaded medicine.
+    Extract dosage line related to medicine name
     """
-    lines = split_prescription_lines(prescription_text)
+    if not prescription_text or medicine_name == "Not detected":
+        return "Not found"
 
-    # 1st pass: direct medicine line
+    lines = [line.strip() for line in prescription_text.splitlines() if line.strip()]
+    med = medicine_name.lower()
+
+    # First: find matching line
+    for i, line in enumerate(lines):
+        line_norm = normalize_text(line)
+
+        if med in line_norm:
+            # return current line + next line if useful
+            combined = line
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                if len(next_line) < 80:
+                    combined += " | " + next_line
+            return combined
+
+        # fuzzy match line words
+        words = re.findall(r"[a-z0-9]+", line_norm)
+        for word in words:
+            if similarity(word, med) >= 0.30:
+                combined = line
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    if len(next_line) < 80:
+                        combined += " | " + next_line
+                return combined
+
+    # fallback: search dosage keywords
+    dosage_keywords = ["once", "twice", "daily", "morning", "night", "after food", "before food"]
     for line in lines:
-        if line_contains_medicine(line, medicine_name):
+        low = line.lower()
+        if any(keyword in low for keyword in dosage_keywords):
             return line
 
-    # 2nd pass: fallback demo-proof
-    lower_text = prescription_text.lower()
-
-    if medicine_name == "Monticope" and "monticope" in lower_text:
-        return "Tab Monticope 0-0-1 x 5 days"
-
-    if medicine_name == "Gudcef 200" and ("gudcef" in lower_text or "gudcef 200" in lower_text or "cefpodoxime" in lower_text):
-        return "Tab Gudcef 200mg 1-0-1 x 5 days"
-
-    if medicine_name == "Chericof Syrup" and "chericof" in lower_text:
-        return "Syr Chericof 7ml-0-7ml"
-
-    return ""
+    return "Not found"
 
 
 # =========================================================
-# DOSAGE PARSER
+# DURATION EXTRACTION
 # =========================================================
-def parse_dosage_pattern(line):
+def extract_duration(prescription_text):
     """
-    Extract dosage patterns like:
-    1-0-1
-    0-0-1
-    1 - 0 - 1
-    7ml-0-7ml
-    5 ml - 0 - 5 ml
+    Extract duration like:
+    - 5 days
+    - 7 days
+    - for 3 days
     """
-    # Syrup style first (important)
-    syrup_match = re.search(
-        r'(\d+)\s*ml\s*-\s*(\d+)\s*(?:ml)?\s*-\s*(\d+)\s*ml',
-        line.lower()
-    )
-    if syrup_match:
-        return {
-            "type": "syrup",
-            "morning": syrup_match.group(1),
-            "afternoon": syrup_match.group(2),
-            "night": syrup_match.group(3),
-        }
+    if not prescription_text:
+        return "Not found"
 
-    # Tablet style
-    tablet_match = re.search(r'(\d+)\s*-\s*(\d+)\s*-\s*(\d+)', line)
-    if tablet_match:
-        return {
-            "type": "tablet",
-            "morning": tablet_match.group(1),
-            "afternoon": tablet_match.group(2),
-            "night": tablet_match.group(3),
-        }
+    patterns = [
+        r"\bfor\s+(\d+\s+days?)\b",
+        r"\b(\d+\s+days?)\b",
+        r"\b(\d+\s+weeks?)\b",
+    ]
 
-    return None
-
-
-def convert_pattern_to_instruction(pattern_data, medicine_name, duration):
-    """
-    Convert dosage pattern to human-readable instruction.
-    """
-    if not pattern_data:
-        # Strong fallback by medicine
-        if medicine_name == "Monticope":
-            return f"Take 1 tablet at night for {duration}"
-        elif medicine_name == "Gudcef 200":
-            return f"Take 1 tablet in the morning and 1 tablet at night for {duration}"
-        elif medicine_name == "Chericof Syrup":
-            return "Take 7 ml in the morning and 7 ml at night"
-        return "Dosage instructions not clearly detected"
-
-    if pattern_data["type"] == "tablet":
-        m = int(pattern_data["morning"])
-        a = int(pattern_data["afternoon"])
-        n = int(pattern_data["night"])
-
-        parts = []
-
-        if m > 0:
-            parts.append(f"{m} tablet" if m == 1 else f"{m} tablets")
-            parts[-1] += " in the morning"
-
-        if a > 0:
-            parts.append(f"{a} tablet" if a == 1 else f"{a} tablets")
-            parts[-1] += " in the afternoon"
-
-        if n > 0:
-            parts.append(f"{n} tablet" if n == 1 else f"{n} tablets")
-            parts[-1] += " at night"
-
-        if parts:
-            joined = " and ".join(parts)
-            return f"Take {joined} for {duration}"
-
-        return "Dosage instructions not clearly detected"
-
-    if pattern_data["type"] == "syrup":
-        m = int(pattern_data["morning"])
-        a = int(pattern_data["afternoon"])
-        n = int(pattern_data["night"])
-
-        parts = []
-
-        if m > 0:
-            parts.append(f"{m} ml in the morning")
-        if a > 0:
-            parts.append(f"{a} ml in the afternoon")
-        if n > 0:
-            parts.append(f"{n} ml at night")
-
-        if parts:
-            joined = " and ".join(parts)
-            return f"Take {joined}"
-
-        return "Dosage instructions not clearly detected"
-
-    return "Dosage instructions not clearly detected"
-
-
-def extract_dosage_info(prescription_text, medicine_name, duration):
-    """
-    Extract dosage only from the matching medicine line,
-    NOT from the first dosage in the prescription.
-    """
-    matched_line = extract_matching_prescription_line(prescription_text, medicine_name)
-
-    if matched_line:
-        pattern_data = parse_dosage_pattern(matched_line)
-        return convert_pattern_to_instruction(pattern_data, medicine_name, duration)
-
-    # Fallback
-    if medicine_name == "Monticope":
-        return f"Take 1 tablet at night for {duration}"
-    elif medicine_name == "Gudcef 200":
-        return f"Take 1 tablet in the morning and 1 tablet at night for {duration}"
-    elif medicine_name == "Chericof Syrup":
-        return "Take 7 ml in the morning and 7 ml at night"
-
-    return "Dosage instructions not clearly detected"
-
-
-# =========================================================
-# MATCH LOGIC
-# =========================================================
-def check_prescription_match(prescription_text, medicine_name):
-    """
-    Match only if detected medicine is actually present in prescription.
-    """
     text = prescription_text.lower()
 
-    if medicine_name == "Monticope":
-        if "monticope" in text or similarity(text, "monticope") > 0.28:
-            return True, "Prescription match found: uploaded medicine is present in the prescription"
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip()
 
-    elif medicine_name == "Gudcef 200":
-        if "gudcef" in text or "gudcef 200" in text or "cefpodoxime" in text or similarity(text, "gudcef") > 0.28:
-            return True, "Prescription match found: uploaded medicine is present in the prescription"
-
-    elif medicine_name == "Chericof Syrup":
-        if "chericof" in text or similarity(text, "chericof") > 0.28:
-            return True, "Prescription match found: uploaded medicine is present in the prescription"
-
-    return False, "Prescription match not clearly found: please verify carefully before use"
+    return "Not found"
 
 
 # =========================================================
-# AUTO SWAP
+# REVERSED UPLOAD AUTO-DETECT
 # =========================================================
-def looks_like_prescription(text):
-    t = text.lower()
-
-    prescription_keywords = [
-        "dr.", "doctor", "clinic", "patient", "tab", "syr", "rx",
-        "consulting", "hours", "days", "mr.", "regn", "family physician"
-    ]
-
-    score = 0
-    for kw in prescription_keywords:
-        if kw in t:
-            score += 1
-
-    return score >= 2
-
-
-def looks_like_medicine(text):
-    t = text.lower()
-
-    medicine_keywords = [
-        "exp", "expiry", "tablet", "tablets", "capsule", "strip", "mg", "ml",
-        "monticope", "gudcef", "cefpodoxime", "levocetirizine", "montelukast",
-        "schedule h", "caution"
-    ]
-
-    score = 0
-    for kw in medicine_keywords:
-        if kw in t:
-            score += 1
-
-    return score >= 2
-
-
-# =========================================================
-# LINKS
-# =========================================================
-def build_links(medicine_name):
-    query = medicine_name.replace(" ", "+")
-    return {
-        "apollo_link": f"https://www.apollopharmacy.in/search-medicines/{query}",
-        "tata_1mg_link": f"https://www.1mg.com/search/all?name={query}",
-    }
-
-
-# =========================================================
-# RESULT STATUS MESSAGE (FOR UI)
-# =========================================================
-def build_status_banner(match_found, medicine_name):
-    if medicine_name == "Medicine name not detected":
-        return "⚠ Medicine name not clearly detected. Please retake the medicine image and verify before use."
-
-    if match_found:
-        return "✅ SAFE: Medicine matches the prescription. Please still verify before use."
-
-    return "⚠ WARNING: Medicine match not clearly confirmed. Please verify carefully before use."
-
-
-# =========================================================
-# VOICE MESSAGE
-# =========================================================
-def build_voice_message(result):
+def should_swap(medicine_name_from_img1, prescription_text_img1, medicine_name_from_img2, prescription_text_img2):
     """
-    Build a professional, clear voice output for demo/viva.
+    Detect if user uploaded medicine and prescription in reverse
+    Logic:
+    - If image1 looks like prescription and image2 looks like medicine, swap
     """
-    if result["medicine_name"] == "Medicine name not detected":
-        return (
-            "Medicine name could not be clearly detected. "
-            "Please retake the medicine image in good lighting and try again. "
-            "Always verify with a doctor or pharmacist before use."
-        )
+    img1_has_med = medicine_name_from_img1 != "Not detected"
+    img2_has_med = medicine_name_from_img2 != "Not detected"
 
-    if result["match_found"]:
-        opening = "Verification completed. Medicine appears to match the prescription."
+    img1_prescription_like = len(prescription_text_img1.split()) > 8
+    img2_prescription_like = len(prescription_text_img2.split()) > 8
+
+    if (not img1_has_med and img1_prescription_like) and (img2_has_med or not img2_prescription_like):
+        return True
+
+    return False
+
+
+# =========================================================
+# BUY LINKS
+# =========================================================
+def build_apollo_link(medicine_name):
+    if not medicine_name or medicine_name == "Not detected":
+        return "https://www.apollopharmacy.in/"
+    query = medicine_name.replace(" ", "%20")
+    return f"https://www.apollopharmacy.in/search-medicines/{query}"
+
+
+def build_tata_1mg_link(medicine_name):
+    if not medicine_name or medicine_name == "Not detected":
+        return "https://www.1mg.com/"
+    query = medicine_name.replace(" ", "%20")
+    return f"https://www.1mg.com/search/all?name={query}"
+
+
+# =========================================================
+# RESULT MESSAGE
+# =========================================================
+def build_result(medicine_text, prescription_text, was_swapped=False):
+    medicine_name = detect_medicine_name(medicine_text)
+    expiry_date = extract_expiry_date(medicine_text)
+    expired = is_expired(expiry_date)
+
+    match_found = medicine_in_text(medicine_name, prescription_text)
+    dosage_info = extract_dosage_info(medicine_name, prescription_text)
+    duration = extract_duration(prescription_text)
+
+    if medicine_name == "Not detected":
+        match_status = "Medicine name could not be detected clearly from medicine image."
+    elif match_found:
+        match_status = "Medicine appears to match the prescription."
     else:
-        opening = "Verification completed. Medicine match is not clearly confirmed."
+        match_status = "Medicine does NOT clearly match the prescription."
 
-    return (
-        f"{opening} "
-        f"Detected medicine name is {result['medicine_name']}. "
-        f"Expiry date is {result['expiry_date']}. "
-        f"{result['dosage_info']}. "
-        f"{result['match_status']}. "
-        f"Duration is {result['duration']}. "
-        f"Please verify before consuming the medicine."
+    if expired:
+        status_banner = "⚠️ WARNING: Medicine appears expired. Do NOT use."
+    elif medicine_name == "Not detected":
+        status_banner = "⚠️ WARNING: Medicine name not detected clearly. Please verify manually."
+    elif match_found:
+        status_banner = "✅ SAFE: Medicine appears valid and matches the prescription."
+    else:
+        status_banner = "⚠️ WARNING: Medicine may not match the prescription."
+
+    voice_message = (
+        f"Medicine name is {medicine_name}. "
+        f"Expiry date is {expiry_date}. "
+        f"{match_status} "
+        f"Dosage information is {dosage_info}. "
+        f"Duration is {duration}. "
+        f"{status_banner}"
     )
 
-
-# =========================================================
-# DEFAULT ERROR RESULT
-# =========================================================
-def build_missing_input_result():
     return {
-        "medicine_name": "Medicine name not detected",
-        "expiry_date": "Not available",
-        "dosage_info": "Dosage instructions not available",
-        "match_found": False,
-        "match_status": "Both medicine and prescription images are required",
-        "duration": "Not available",
-        "apollo_link": "#",
-        "tata_1mg_link": "#",
-        "was_swapped": False,
-        "status_banner": "⚠ Please upload or capture both medicine and prescription images.",
-        "voice_message": (
-            "Both medicine and prescription images are required. "
-            "Please upload or capture both images and try again."
-        ),
+        "medicine_name": medicine_name,
+        "expiry_date": expiry_date,
+        "dosage_info": dosage_info,
+        "match_status": match_status,
+        "duration": duration,
+        "status_banner": status_banner,
+        "voice_message": voice_message,
+        "apollo_link": build_apollo_link(medicine_name),
+        "tata_1mg_link": build_tata_1mg_link(medicine_name),
+        "medicine_text": medicine_text,
+        "prescription_text": prescription_text,
+        "was_swapped": was_swapped,
     }
 
 
@@ -578,75 +421,60 @@ def home(request):
     result = None
 
     if request.method == "POST":
-        # Manual upload files
-        medicine_file = request.FILES.get("medicine_image")
-        prescription_file = request.FILES.get("prescription_image")
+        medicine_image_file = request.FILES.get("medicine_image")
+        prescription_image_file = request.FILES.get("prescription_image")
 
-        # Advanced camera base64 fields
         medicine_camera_data = request.POST.get("medicine_camera_data", "").strip()
         prescription_camera_data = request.POST.get("prescription_camera_data", "").strip()
 
-        # If camera data exists, convert to in-memory files
+        # Load images from camera OR file upload
+        medicine_img = None
+        prescription_img = None
+
         if medicine_camera_data:
-            converted = base64_to_uploaded_file(medicine_camera_data, filename="medicine_capture.jpg")
-            if converted:
-                medicine_file = converted
+            medicine_img = decode_base64_image(medicine_camera_data)
+        elif medicine_image_file:
+            medicine_img = load_uploaded_image(medicine_image_file)
 
         if prescription_camera_data:
-            converted = base64_to_uploaded_file(prescription_camera_data, filename="prescription_capture.jpg")
-            if converted:
-                prescription_file = converted
+            prescription_img = decode_base64_image(prescription_camera_data)
+        elif prescription_image_file:
+            prescription_img = load_uploaded_image(prescription_image_file)
 
-        # Need both
-        if medicine_file and prescription_file:
-            # OCR
-            medicine_text = clean_text(extract_text_from_image(medicine_file))
-            prescription_text = clean_text(extract_text_from_image(prescription_file))
+        if medicine_img and prescription_img:
+            # OCR both images
+            text1 = extract_text_from_pil_image(medicine_img)
+            text2 = extract_text_from_pil_image(prescription_img)
 
-            # Auto-swap if user uploaded reversed
-            was_swapped = False
-            if looks_like_prescription(medicine_text) and looks_like_medicine(prescription_text):
-                medicine_text, prescription_text = prescription_text, medicine_text
-                was_swapped = True
+            # Detect swap possibility
+            med1 = detect_medicine_name(text1)
+            med2 = detect_medicine_name(text2)
 
-            # Detect medicine
-            medicine_name = detect_medicine_name(medicine_text)
+            swap = should_swap(med1, text1, med2, text2)
 
-            # Expiry
-            expiry_date = extract_expiry_date(medicine_text, medicine_name)
-
-            # Duration
-            duration = extract_duration(prescription_text)
-
-            # Match
-            match_found, match_status = check_prescription_match(prescription_text, medicine_name)
-
-            # Dosage
-            dosage_info = extract_dosage_info(prescription_text, medicine_name, duration)
-
-            # Links
-            links = build_links(medicine_name)
-
-            # Final result dictionary
-            result = {
-                "medicine_name": medicine_name,
-                "expiry_date": expiry_date,
-                "dosage_info": dosage_info,
-                "match_found": match_found,
-                "match_status": match_status,
-                "duration": duration,
-                "apollo_link": links["apollo_link"],
-                "tata_1mg_link": links["tata_1mg_link"],
-                "was_swapped": was_swapped,
-                "status_banner": build_status_banner(match_found, medicine_name),
-                "medicine_text": medicine_text,           # optional debug
-                "prescription_text": prescription_text,   # optional debug
-            }
-
-            # Voice message
-            result["voice_message"] = build_voice_message(result)
+            if swap:
+                medicine_text = text2
+                prescription_text = text1
+                result = build_result(medicine_text, prescription_text, was_swapped=True)
+            else:
+                medicine_text = text1
+                prescription_text = text2
+                result = build_result(medicine_text, prescription_text, was_swapped=False)
 
         else:
-            result = build_missing_input_result()
+            result = {
+                "medicine_name": "Not detected",
+                "expiry_date": "Not found",
+                "dosage_info": "Not found",
+                "match_status": "Both medicine and prescription images are required.",
+                "duration": "Not found",
+                "status_banner": "⚠️ WARNING: Please upload or capture both images.",
+                "voice_message": "Please provide both medicine and prescription images.",
+                "apollo_link": "https://www.apollopharmacy.in/",
+                "tata_1mg_link": "https://www.1mg.com/",
+                "medicine_text": "",
+                "prescription_text": "",
+                "was_swapped": False,
+            }
 
     return render(request, "home.html", {"result": result})
