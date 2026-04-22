@@ -136,6 +136,16 @@
       color: #666;
     }
 
+    .error-box {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 10px;
+      background: #f8d7da;
+      color: #842029;
+      border: 1px solid #f5c2c7;
+      font-weight: bold;
+    }
+
     @media (max-width: 600px) {
       .btn {
         width: 90%;
@@ -152,13 +162,19 @@
     <h1>Medicine Safety Checker</h1>
     <div class="subtitle">Capture Prescription and Medicine Strip for Safety Analysis</div>
 
+    {% if error %}
+      <div class="error-box">{{ error }}</div>
+    {% endif %}
+
     <form id="uploadForm" method="POST" enctype="multipart/form-data">
       {% csrf_token %}
       <input type="file" id="prescriptionInput" name="prescription" accept="image/*" class="hidden">
       <input type="file" id="medicineInput" name="medicine" accept="image/*" class="hidden">
 
+      <!-- START BUTTON -->
       <button type="button" id="startBtn" class="btn btn-primary">Start Voice Guidance</button>
 
+      <!-- CAMERA SECTION -->
       <div class="camera-box" id="cameraBox">
         <video id="video" autoplay playsinline></video>
         <canvas id="canvas" class="hidden"></canvas>
@@ -167,6 +183,7 @@
         <button type="button" id="retakeBtn" class="btn btn-warning hidden">Retake</button>
       </div>
 
+      <!-- IMAGE PREVIEW -->
       <div class="preview-row">
         <div class="preview-card">
           <h3>Prescription Image</h3>
@@ -178,9 +195,10 @@
         </div>
       </div>
 
-      <!-- IMPORTANT: ANALYSE BUTTON ALWAYS EXISTS -->
+      <!-- ANALYSE BUTTON -->
       <button type="submit" id="analyseBtn" class="btn btn-danger hidden">Analyse Images</button>
 
+      <!-- STATUS -->
       <div class="status" id="statusText">Press Start to begin</div>
       <div class="voice-tip">Voice commands: "start", "capture", "retake", "analyse"</div>
       <div class="loading" id="loadingText">⏳ Analysing... Please wait</div>
@@ -204,7 +222,7 @@
     const uploadForm = document.getElementById("uploadForm");
 
     let stream = null;
-    let currentStep = "prescription"; // prescription -> medicine -> done
+    let currentStep = "prescription";
     let isSubmitting = false;
 
     function speak(text) {
@@ -254,10 +272,10 @@
       const bstr = atob(arr[1]);
       let n = bstr.length;
       const u8arr = new Uint8Array(n);
-      while(n--) {
+      while (n--) {
         u8arr[n] = bstr.charCodeAt(n);
       }
-      return new File([u8arr], filename, {type:mime});
+      return new File([u8arr], filename, { type: mime });
     }
 
     function setFileInput(fileInput, file) {
@@ -277,7 +295,7 @@
       canvas.height = video.videoHeight || 720;
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
       const fileName = currentStep + "_" + Date.now() + ".jpg";
       const file = dataURLtoFile(dataUrl, fileName);
 
@@ -299,7 +317,6 @@
         stopCamera();
         cameraBox.style.display = "none";
 
-        // SHOW ANALYSE BUTTON
         analyseBtn.classList.remove("hidden");
         analyseBtn.style.display = "inline-block";
 
@@ -309,7 +326,6 @@
 
     function retakeImage() {
       if (currentStep === "medicine") {
-        // retake prescription
         prescriptionInput.value = "";
         prescriptionPreview.src = "";
         prescriptionPreview.classList.add("hidden");
@@ -318,7 +334,6 @@
         updateStatus("Retake prescription image.");
         startCamera();
       } else if (currentStep === "done") {
-        // retake medicine
         medicineInput.value = "";
         medicinePreview.src = "";
         medicinePreview.classList.add("hidden");
@@ -335,6 +350,8 @@
       currentStep = "prescription";
       isSubmitting = false;
       analyseBtn.classList.add("hidden");
+      analyseBtn.disabled = false;
+      analyseBtn.textContent = "Analyse Images";
       loadingText.style.display = "none";
 
       prescriptionInput.value = "";
@@ -351,7 +368,6 @@
     captureBtn.addEventListener("click", captureImage);
     retakeBtn.addEventListener("click", retakeImage);
 
-    // VERY IMPORTANT: submit only once
     uploadForm.addEventListener("submit", function(e) {
       if (isSubmitting) {
         e.preventDefault();
@@ -372,7 +388,6 @@
       updateStatus("Analysing images. Please wait.");
     });
 
-    // Voice command support
     let recognition;
     if ('webkitSpeechRecognition' in window) {
       recognition = new webkitSpeechRecognition();
@@ -401,7 +416,6 @@
         console.log("Speech recognition error:", event.error);
       };
 
-      // Start voice recognition automatically
       window.addEventListener("load", () => {
         try {
           recognition.start();
@@ -411,7 +425,6 @@
       });
     }
 
-    // Welcome voice
     window.addEventListener("load", () => {
       setTimeout(() => {
         speak("Welcome. Press start or say start to begin.");
