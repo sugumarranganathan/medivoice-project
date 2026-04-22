@@ -6,9 +6,7 @@
     <title>AI-Powered Medicine & Prescription Verifier</title>
 
     <style>
-        * {
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         body {
             margin: 0;
@@ -715,7 +713,6 @@
                 dosage instructions, and prescription match with a doctor or pharmacist before use.
             </div>
 
-            <!-- Optional Debug Section (hidden by default) -->
             {% if result.medicine_text or result.prescription_text %}
             <div class="debug-toggle-wrap">
                 <button type="button" class="debug-btn" onclick="toggleDebugBox()">🛠 Show / Hide OCR Debug Text</button>
@@ -740,6 +737,7 @@
     let speechSynthesisUtterance = null;
     let recognition = null;
     let voiceCommandsRunning = false;
+    let shouldKeepListening = false;
     let stream = null;
 
     let guidedFlowStarted = false;
@@ -784,13 +782,20 @@
         window.speechSynthesis.speak(speechSynthesisUtterance);
     }
 
+    // =========================
+    // READ INSTRUCTIONS
+    // =========================
     function readInstructions() {
-        const instructions = "Welcome to the AI Powered Medicine and Prescription Verifier. After these instructions, I will ask whether to turn on the camera to capture the medicine image. Please say yes or ok. Then I will capture the medicine image. Next, I will ask for prescription capture. Then I will analyze automatically and finally read the result aloud.";
+        stopVoiceCommands();
+
+        const instructions = "Welcome to the AI Powered Medicine and Prescription Verifier. After these instructions, I will ask whether to turn on the camera to capture the medicine image. Please say yes or ok only after I say listening now. Then I will capture the medicine image. Next, I will ask for prescription capture. Then I will analyze automatically and finally read the result aloud.";
 
         speakText(instructions, function () {
             if (!guidedFlowStarted && !document.getElementById("resultCard")) {
                 guidedFlowStarted = true;
-                askForMedicineCapture();
+                setTimeout(() => {
+                    askForMedicineCapture();
+                }, 600);
             }
         });
     }
@@ -807,26 +812,28 @@
     }
 
     // =========================
-    // VOICE COMMANDS
+    // VOICE COMMANDS (FIXED)
     // =========================
     function startVoiceCommands() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (!SpeechRecognition) {
-            alert("Voice commands are supported best in Google Chrome. Spoken instructions and spoken results will still work.");
-            speakText("Voice commands are supported best in Google Chrome. Spoken instructions and spoken results will still work.");
+            alert("Voice commands are supported best in Google Chrome.");
+            speakText("Voice commands are supported best in Google Chrome.");
             return;
         }
 
         if (voiceCommandsRunning) {
-            speakText("Voice commands are already running.");
             return;
         }
+
+        shouldKeepListening = true;
 
         recognition = new SpeechRecognition();
         recognition.lang = "en-US";
         recognition.continuous = true;
         recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
 
         recognition.onstart = function () {
             voiceCommandsRunning = true;
@@ -857,32 +864,60 @@
                 return;
             }
 
-            if (waitingForConfirmation && (lastResult.includes("yes") || lastResult.includes("ok"))) {
+            if (waitingForConfirmation && (
+                lastResult.includes("yes") ||
+                lastResult.includes("ok") ||
+                lastResult.includes("yeah") ||
+                lastResult.includes("open") ||
+                lastResult.includes("start")
+            )) {
                 waitingForConfirmation = false;
-                openCameraForCurrentStep();
+                stopVoiceCommands();
+
+                setTimeout(() => {
+                    openCameraForCurrentStep();
+                }, 300);
                 return;
             }
 
             if (lastResult.includes("open medicine camera")) {
                 currentCaptureStep = "medicine";
-                openCameraForCurrentStep();
+                stopVoiceCommands();
+                setTimeout(() => {
+                    openCameraForCurrentStep();
+                }, 300);
                 return;
             }
 
             if (lastResult.includes("open prescription camera")) {
                 currentCaptureStep = "prescription";
-                openCameraForCurrentStep();
+                stopVoiceCommands();
+                setTimeout(() => {
+                    openCameraForCurrentStep();
+                }, 300);
                 return;
             }
 
-            if (waitingForCaptureCommand && (lastResult.includes("capture") || lastResult.includes("yes") || lastResult.includes("ok"))) {
+            if (waitingForCaptureCommand && (
+                lastResult.includes("capture") ||
+                lastResult.includes("yes") ||
+                lastResult.includes("ok")
+            )) {
                 waitingForCaptureCommand = false;
-                captureCurrentImage();
+                stopVoiceCommands();
+
+                setTimeout(() => {
+                    captureCurrentImage();
+                }, 250);
                 return;
             }
 
             if (lastResult.includes("capture")) {
-                captureCurrentImage();
+                stopVoiceCommands();
+
+                setTimeout(() => {
+                    captureCurrentImage();
+                }, 250);
                 return;
             }
 
@@ -894,20 +929,58 @@
 
         recognition.onerror = function (event) {
             console.log("Speech recognition error:", event.error);
+
+            if (event.error === "not-allowed") {
+                speakText("Microphone permission is blocked. Please allow microphone access.");
+                shouldKeepListening = false;
+            } else if (event.error === "no-speech") {
+                console.log("No speech detected.");
+            } else if (event.error === "aborted") {
+                console.log("Recognition aborted.");
+            } else {
+                console.log("Speech recognition error:", event.error);
+            }
         };
 
         recognition.onend = function () {
             voiceCommandsRunning = false;
+            console.log("Voice recognition ended");
+
+            if (shouldKeepListening) {
+                setTimeout(() => {
+                    try {
+                        if (recognition) {
+                            recognition.start();
+                        }
+                    } catch (e) {
+                        console.log("Recognition restart blocked:", e);
+                    }
+                }, 800);
+            }
         };
 
-        recognition.start();
+        try {
+            recognition.start();
+            speakText("Voice commands started. I am listening.");
+        } catch (e) {
+            console.log("Recognition start error:", e);
+            speakText("Unable to start voice commands. Please check microphone permission.");
+        }
     }
 
     function stopVoiceCommands() {
+        shouldKeepListening = false;
+
         if (recognition) {
-            recognition.stop();
-            recognition = null;
+            try {
+                recognition.onend = null; // prevent auto restart while stopping manually
+                recognition.stop();
+            } catch (e) {
+                console.log("Recognition stop error:", e);
+            }
         }
+
+        recognition = null;
         voiceCommandsRunning = false;
     }
 
@@ -918,28 +991,42 @@
     }
 
     // =========================
-    // GUIDED FLOW
+    // GUIDED FLOW (FIXED)
     // =========================
     function askForMedicineCapture() {
         currentCaptureStep = "medicine";
-        waitingForConfirmation = true;
+        waitingForConfirmation = false;
 
-        if (!voiceCommandsRunning) {
-            startVoiceCommands();
-        }
+        stopVoiceCommands();
 
-        speakText("Shall I turn on the camera to capture the medicine image? Please say yes or ok.");
+        speakText("Shall I turn on the camera to capture the medicine image? Please say yes or ok after I say listening now.", function () {
+            setTimeout(() => {
+                waitingForConfirmation = true;
+                startVoiceCommands();
+
+                setTimeout(() => {
+                    speakText("Listening now.");
+                }, 400);
+            }, 500);
+        });
     }
 
     function askForPrescriptionCapture() {
         currentCaptureStep = "prescription";
-        waitingForConfirmation = true;
+        waitingForConfirmation = false;
 
-        if (!voiceCommandsRunning) {
-            startVoiceCommands();
-        }
+        stopVoiceCommands();
 
-        speakText("Shall I turn on the camera to capture the prescription image? Please say yes or ok.");
+        speakText("Shall I turn on the camera to capture the prescription image? Please say yes or ok after I say listening now.", function () {
+            setTimeout(() => {
+                waitingForConfirmation = true;
+                startVoiceCommands();
+
+                setTimeout(() => {
+                    speakText("Listening now.");
+                }, 400);
+            }, 500);
+        });
     }
 
     // =========================
@@ -947,6 +1034,9 @@
     // =========================
     async function openCameraForCurrentStep() {
         try {
+            waitingForConfirmation = false;
+            waitingForCaptureCommand = false;
+
             cameraBox.style.display = "block";
             cameraTitle.textContent = currentCaptureStep === "medicine"
                 ? "Medicine Camera Capture"
@@ -960,17 +1050,25 @@
             });
 
             video.srcObject = stream;
-            cameraStatus.textContent = "Camera is ON. Auto capture will happen in 3 seconds. Or say capture.";
-            speakText("Camera is on. Auto capture will happen in 3 seconds. Or say capture now.");
 
-            waitingForCaptureCommand = true;
+            cameraStatus.textContent = "Camera is ON. Auto capture will happen in 4 seconds. Or say capture.";
+
+            setTimeout(() => {
+                speakText("Camera is on. Auto capture will happen in 4 seconds. Or say capture now.");
+            }, 300);
+
+            setTimeout(() => {
+                waitingForCaptureCommand = true;
+                startVoiceCommands();
+            }, 700);
 
             setTimeout(() => {
                 if (stream && waitingForCaptureCommand) {
                     waitingForCaptureCommand = false;
+                    stopVoiceCommands();
                     captureCurrentImage();
                 }
-            }, 3000);
+            }, 4000);
 
         } catch (error) {
             console.error("Camera error:", error);
@@ -1001,16 +1099,21 @@
             setPreviewImage("manualMedicinePreview", imageData);
             cameraStatus.textContent = "Medicine image captured successfully.";
 
+            stopVoiceCommands();
+
             speakText("Medicine image captured successfully.", function () {
                 closeCamera();
                 setTimeout(() => {
                     askForPrescriptionCapture();
                 }, 700);
             });
+
         } else if (currentCaptureStep === "prescription") {
             document.getElementById("prescription_camera_data").value = imageData;
             setPreviewImage("manualPrescriptionPreview", imageData);
             cameraStatus.textContent = "Prescription image captured successfully.";
+
+            stopVoiceCommands();
 
             speakText("Prescription image captured successfully. Analyzing now.", function () {
                 closeCamera();
@@ -1022,6 +1125,8 @@
     }
 
     function closeCamera() {
+        waitingForCaptureCommand = false;
+
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
             stream = null;
@@ -1076,6 +1181,7 @@
             return;
         }
 
+        stopVoiceCommands();
         speakText("Analyzing medicine and prescription now.");
 
         setTimeout(() => {
@@ -1122,6 +1228,8 @@
             debugBox.style.display = "none";
         }
 
+        closeCamera();
+
         guidedFlowStarted = false;
         currentCaptureStep = null;
         waitingForConfirmation = false;
@@ -1164,7 +1272,7 @@
         {% else %}
             setTimeout(function() {
                 readInstructions();
-            }, 700);
+            }, 900);
         {% endif %}
     };
 </script>
