@@ -669,8 +669,8 @@
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: { ideal: "environment" },
-                        width: { ideal: 640 },
-                        height: { ideal: 480 }
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
                     },
                     audio: false
                 });
@@ -705,17 +705,17 @@
 
             const context = canvas.getContext("2d");
 
-            // Render-safe lower resolution
-            const targetWidth = 640;
-            const targetHeight = 480;
+            // BETTER OCR CAPTURE (still Render-safe)
+            const targetWidth = 900;
+            const targetHeight = 700;
 
             canvas.width = targetWidth;
             canvas.height = targetHeight;
 
             context.drawImage(video, 0, 0, targetWidth, targetHeight);
 
-            // Render-safe lower quality image
-            const imageData = canvas.toDataURL("image/jpeg", 0.65);
+            // BETTER OCR QUALITY
+            const imageData = canvas.toDataURL("image/jpeg", 0.82);
 
             if (currentCaptureType === "medicine") {
                 medicineCameraInput.value = imageData;
