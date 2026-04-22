@@ -1,19 +1,18 @@
 import re
 import base64
 from io import BytesIO
-from PIL import Image
+from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 from django.shortcuts import render
 import pytesseract
 
 
 # =========================================================
-# IMAGE HELPERS (Render-safe)
+# IMAGE HELPERS (Render-safe + Better OCR)
 # =========================================================
 
-def compress_uploaded_image(uploaded_file, max_size=(1400, 1400)):
+def compress_uploaded_image(uploaded_file, max_size=(1600, 1600)):
     """
-    Resize uploaded image to reduce memory usage on Render free plan.
-    Slightly higher size for better OCR than old version.
+    Resize uploaded image safely for Render while preserving OCR readability.
     """
     try:
         uploaded_file.seek(0)
@@ -22,16 +21,19 @@ def compress_uploaded_image(uploaded_file, max_size=(1400, 1400)):
         img.thumbnail(max_size)
 
         buffer = BytesIO()
-        img.save(buffer, format="JPEG", quality=82)
+        img.save(buffer, format="JPEG", quality=88, optimize=True)
         buffer.seek(0)
 
-        return Image.open(buffer)
+        return Image.open(buffer).convert("RGB")
     except Exception:
-        uploaded_file.seek(0)
-        return Image.open(uploaded_file)
+        try:
+            uploaded_file.seek(0)
+            return Image.open(uploaded_file).convert("RGB")
+        except Exception:
+            return None
 
 
-def decode_base64_image(base64_data, max_size=(1400, 1400)):
+def decode_base64_image(base64_data, max_size=(1600, 1600)):
     """
     Decode camera-captured base64 image safely.
     """
@@ -51,13 +53,55 @@ def decode_base64_image(base64_data, max_size=(1400, 1400)):
         return None
 
 
-def extract_text_from_image(img):
+def preprocess_for_ocr(img):
     """
-    OCR text extraction with safety.
+    Better OCR preprocessing for medicine strips and prescriptions.
     """
     try:
-        text = pytesseract.image_to_string(img)
-        return text.strip()
+        gray = ImageOps.grayscale(img)
+        gray = gray.filter(ImageFilter.SHARPEN)
+        gray = ImageEnhance.Contrast(gray).enhance(2.0)
+        gray = ImageEnhance.Sharpness(gray).enhance(2.0)
+        return gray
+    except Exception:
+        return img
+
+
+def extract_text_from_image(img):
+    """
+    OCR text extraction with multiple configs for better reliability.
+    """
+    try:
+        processed = preprocess_for_ocr(img)
+
+        texts = []
+
+        # Default OCR
+        try:
+            t1 = pytesseract.image_to_string(processed)
+            if t1:
+                texts.append(t1)
+        except Exception:
+            pass
+
+        # Block text mode
+        try:
+            t2 = pytesseract.image_to_string(processed, config="--psm 6")
+            if t2:
+                texts.append(t2)
+        except Exception:
+            pass
+
+        # Sparse text mode
+        try:
+            t3 = pytesseract.image_to_string(processed, config="--psm 11")
+            if t3:
+                texts.append(t3)
+        except Exception:
+            pass
+
+        final_text = "\n".join(texts).strip()
+        return final_text
     except Exception:
         return ""
 
@@ -75,19 +119,19 @@ def normalize_text(text):
 
 
 # =========================================================
-# MEDICINE NAME EXTRACTION (STRONG FIX)
+# MEDICINE NAME EXTRACTION (BEST FIX)
 # =========================================================
 
 def extract_medicine_name(medicine_text):
     """
     Strong medicine name extraction:
-    - first detect known demo medicines
-    - ignore expiry/manufacturer lines
-    - prefer top brand lines
+    - direct brand detection first
+    - avoids expiry/manufacturer confusion
+    - prefers real medicine words
     """
     text_upper = medicine_text.upper()
 
-    # Strong direct checks (VERY IMPORTANT)
+    # Strong direct checks for your demo medicines
     if "GUDCEF" in text_upper:
         if "200" in text_upper:
             return "Gudcef 200"
@@ -104,45 +148,46 @@ def extract_medicine_name(medicine_text):
     ignore_words = {
         "EXP", "EXPIRY", "MFG", "BATCH", "MRP", "ALKEM", "TABLETS", "TABLET",
         "CAPSULE", "CAPSULES", "SYRUP", "MANUFACTURED", "MARKETED", "PH DATE",
-        "USE BEFORE", "CAUTION", "SCHEDULE", "PRESCRIPTION DRUG", "IP"
+        "USE BEFORE", "CAUTION", "SCHEDULE", "PRESCRIPTION DRUG", "IP",
+        "LABORATORIES", "REGISTERED", "PRACTITIONER"
     }
 
     best_candidate = ""
 
-    # Prefer first 5 lines only
-    for line in lines[:5]:
+    # Prefer first 6 lines only
+    for line in lines[:6]:
         line_upper = line.upper()
 
-        # Skip expiry/manufacturer lines
         if any(word in line_upper for word in ignore_words):
-            # But allow if strong brand present
             if "GUDCEF" not in line_upper and "MONTICOPE" not in line_upper and "CHERICOF" not in line_upper:
                 continue
 
-        # Clean line
         clean_line = re.sub(r"[^A-Za-z0-9\s]", " ", line).strip()
         clean_line = re.sub(r"\s+", " ", clean_line)
 
-        # Skip if line is mostly numbers
+        # Skip mostly numeric lines
         if re.fullmatch(r"[\d\s/.-]+", clean_line):
             continue
 
-        # If line contains a strong medicine-like word
+        # Avoid expiry-like lines
+        if re.search(r"\b(?:EXP|MFG|BATCH|MRP)\b", clean_line.upper()):
+            continue
+
         if re.search(r"\b[A-Za-z]{4,}\b", clean_line):
-            # Prefer first meaningful line
             best_candidate = clean_line
             break
 
     if best_candidate:
-        # Special handling: first 1-2 strong words
         words = best_candidate.split()
 
-        # Remove weak words
-        weak = {"tablet", "tablets", "capsule", "capsules", "syrup", "ip", "mg", "ml"}
+        weak = {
+            "tablet", "tablets", "capsule", "capsules", "syrup",
+            "ip", "mg", "ml", "tab", "syp"
+        }
         filtered = [w for w in words if w.lower() not in weak]
 
         if filtered:
-            # Try to keep a number if present
+            # Keep number if present
             if len(filtered) >= 2 and filtered[1].isdigit():
                 return f"{filtered[0]} {filtered[1]}"
             return " ".join(filtered[:2])
@@ -157,7 +202,7 @@ def extract_medicine_name(medicine_text):
 def extract_expiry_date(medicine_text):
     """
     Extract expiry date from medicine OCR text.
-    Supports formats like 06/2029, EXP 06/29, 06-2029 etc.
+    Supports: EXP 06/2029, 06/2029, 06-29, etc.
     """
     text = medicine_text.upper()
 
@@ -171,30 +216,30 @@ def extract_expiry_date(medicine_text):
         match = re.search(pattern, text)
         if match:
             expiry = match.group(1).replace("-", "/")
+
             if re.match(r"^\d{2}/\d{2}$", expiry):
                 mm, yy = expiry.split("/")
                 expiry = f"{mm}/20{yy}"
+
             return expiry
 
     return "Not clearly detected"
 
 
 # =========================================================
-# DURATION EXTRACTION (STRONG FIX)
+# DURATION EXTRACTION
 # =========================================================
 
 def extract_duration(prescription_text):
     """
-    Extract duration like x 5 days, 5 days, etc.
+    Extract duration like x 5 days, × 5 days, 5 days
     """
     text = prescription_text.lower()
 
-    # Strong pattern for x 5 days / × 5 days
     match = re.search(r"[x×]\s*(\d+)\s*days?", text)
     if match:
         return f"{match.group(1)} days"
 
-    # Standard pattern
     match = re.search(r"\b(\d+)\s*days?\b", text)
     if match:
         return f"{match.group(1)} days"
@@ -215,7 +260,7 @@ def medicine_matches_prescription(medicine_name, prescription_text):
     if medicine_name == "Medicine name not clearly detected":
         return False
 
-    # Strong demo checks
+    # Strong direct demo checks
     if medicine_name in ["Gudcef 200", "Gudcef"] and "gudcef" in rx:
         return True
     if medicine_name == "Monticope" and "monticope" in rx:
@@ -233,6 +278,7 @@ def medicine_matches_prescription(medicine_name, prescription_text):
 
     if hits == len(med_tokens):
         return True
+
     if med_tokens and med_tokens[0] in rx:
         return True
 
@@ -259,7 +305,7 @@ def extract_line_for_medicine(prescription_text, medicine_name):
         if medicine_name == "Chericof Syrup" and "chericof" in low:
             return line
 
-    # fallback
+    # fallback token match
     med_lower = medicine_name.lower()
     tokens = [t for t in med_lower.split() if len(t) > 2]
 
@@ -308,8 +354,8 @@ def parse_syrup_pattern(line):
             "night": int(match.group(3)),
         }
 
-    # fallback if OCR misses ml in middle
-    match = re.search(r"(\d+)\s*[-/]\s*(\d+)\s*[-/]\s*(\d+)", line.lower())
+    # fallback if OCR misses ml around middle/last
+    match = re.search(r"(\d+)\s*ml?\s*[-/]\s*(\d+)\s*[-/]\s*(\d+)\s*ml?", line.lower())
     if match:
         return {
             "type": "syrup",
@@ -356,9 +402,7 @@ def format_dosage(pattern_data, duration, medicine_name):
 
         if parts:
             joined = " and ".join(parts)
-            if duration != "Not clearly detected":
-                return f"Take {joined} for {duration}"
-            return f"Take {joined}"
+            return f"Take {joined} for {duration}" if duration != "Not clearly detected" else f"Take {joined}"
 
         return "Dosage instructions not clearly detected"
 
@@ -378,9 +422,7 @@ def format_dosage(pattern_data, duration, medicine_name):
 
         if parts:
             joined = " and ".join(parts)
-            if duration != "Not clearly detected":
-                return f"Take {joined} for {duration}"
-            return f"Take {joined}"
+            return f"Take {joined} for {duration}" if duration != "Not clearly detected" else f"Take {joined}"
 
         return "Dosage instructions not clearly detected"
 
@@ -390,9 +432,9 @@ def format_dosage(pattern_data, duration, medicine_name):
 def extract_dosage_instructions(prescription_text, medicine_name, duration):
     """
     Safer dosage extraction:
-    - use medicine-specific line
+    - medicine-specific line
     - parse tablet/syrup pattern
-    - fallback only for known demo medicines
+    - safe fallback only for known demo medicines
     """
     line = extract_line_for_medicine(prescription_text, medicine_name)
 
@@ -460,7 +502,6 @@ def home(request):
             medicine_text = extract_text_from_image(medicine_img)
             prescription_text = extract_text_from_image(prescription_img)
 
-            # Extract details
             medicine_name = extract_medicine_name(medicine_text)
             expiry_date = extract_expiry_date(medicine_text)
             duration = extract_duration(prescription_text)
