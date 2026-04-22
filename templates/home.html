@@ -4,43 +4,51 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI-Powered Medicine & Prescription Verifier</title>
+
     <style>
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
 
         body {
-            font-family: Arial, sans-serif;
-            background: #f3f6fa;
             margin: 0;
             padding: 0;
-            color: #222;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #eef5ff, #f8fbff);
+            color: #1f2d3d;
         }
 
         .container {
-            max-width: 1000px;
-            margin: 30px auto;
+            max-width: 1100px;
+            margin: 24px auto;
+            padding: 20px;
+        }
+
+        .main-card {
             background: #ffffff;
-            border-radius: 16px;
+            border-radius: 20px;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
             padding: 28px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+            border: 1px solid #dbe8f8;
         }
 
         h1 {
+            margin: 0 0 10px;
             text-align: center;
             color: #0b4ea2;
-            margin-bottom: 10px;
-            font-size: 30px;
+            font-size: 32px;
             line-height: 1.35;
         }
 
         .subtitle {
             text-align: center;
-            color: #555;
-            margin-bottom: 24px;
+            color: #546173;
             font-size: 16px;
-            line-height: 1.6;
+            line-height: 1.7;
+            margin-bottom: 24px;
         }
 
-        .accessibility-bar {
+        .top-actions {
             display: flex;
             flex-wrap: wrap;
             gap: 12px;
@@ -48,40 +56,60 @@
             margin-bottom: 22px;
         }
 
-        .assist-btn {
+        .action-btn {
             border: none;
-            color: white;
-            padding: 12px 16px;
-            border-radius: 10px;
+            color: #fff;
+            padding: 14px 18px;
+            border-radius: 12px;
             cursor: pointer;
             font-size: 15px;
             font-weight: bold;
             transition: 0.2s ease;
         }
 
-        .guide-btn { background: #6a1b9a; }
-        .guide-btn:hover { background: #4a148c; }
+        .btn-guide { background: #6a1b9a; }
+        .btn-guide:hover { background: #4e1371; }
 
-        .voice-start-btn { background: #00897b; }
-        .voice-start-btn:hover { background: #00695c; }
+        .btn-voice { background: #00897b; }
+        .btn-voice:hover { background: #00695c; }
 
-        .voice-stop-btn { background: #c62828; }
-        .voice-stop-btn:hover { background: #8e0000; }
+        .btn-stop { background: #c62828; }
+        .btn-stop:hover { background: #8e0000; }
 
-        .form-card {
+        .info-box {
+            border-radius: 14px;
+            padding: 16px 18px;
+            margin-bottom: 18px;
+            line-height: 1.7;
+            font-size: 15px;
+        }
+
+        .commands-box {
+            background: #eef7ff;
+            border-left: 5px solid #1565c0;
+            color: #0d47a1;
+        }
+
+        .note-box {
+            background: #fff7e6;
+            border-left: 5px solid #f0ad00;
+            color: #6a4a00;
+        }
+
+        .section-card {
             background: #f8fbff;
             border: 1px solid #d6e6f8;
-            border-radius: 14px;
+            border-radius: 16px;
             padding: 24px;
-            margin-bottom: 24px;
+            margin-bottom: 22px;
         }
 
         .section-title {
-            font-size: 22px;
-            font-weight: bold;
-            color: #0b4ea2;
-            margin-bottom: 18px;
             text-align: center;
+            color: #0b4ea2;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 18px;
         }
 
         .form-group {
@@ -91,44 +119,43 @@
         label {
             display: block;
             font-weight: bold;
-            margin-bottom: 10px;
             color: #123a70;
-            font-size: 17px;
+            font-size: 18px;
+            margin-bottom: 10px;
         }
 
         .help-text {
+            color: #5d6b7a;
             font-size: 14px;
-            color: #555;
-            margin-bottom: 12px;
-            line-height: 1.5;
+            line-height: 1.6;
+            margin-bottom: 14px;
         }
 
-        .upload-options {
+        .upload-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 14px;
-            margin-bottom: 10px;
+            gap: 16px;
         }
 
         .upload-card {
             background: #ffffff;
             border: 1px solid #d6e6f8;
-            border-radius: 12px;
-            padding: 14px;
+            border-radius: 14px;
+            padding: 16px;
         }
 
         .upload-card-title {
             font-weight: bold;
             color: #0b4ea2;
-            margin-bottom: 10px;
-            font-size: 15px;
+            font-size: 16px;
+            margin-bottom: 12px;
         }
 
         input[type="file"] {
             width: 100%;
             padding: 12px;
             border: 2px dashed #9fc3eb;
-            border-radius: 10px;
+            border-radius: 12px;
             background: #fff;
             cursor: pointer;
         }
@@ -136,88 +163,65 @@
         .small-note {
             margin-top: 8px;
             font-size: 13px;
-            color: #666;
-            line-height: 1.4;
+            color: #6b7280;
+            line-height: 1.5;
         }
 
         .submit-btn {
             width: 100%;
             background: #1565c0;
-            color: white;
+            color: #fff;
             border: none;
-            padding: 16px;
+            padding: 18px;
             font-size: 22px;
             font-weight: bold;
-            border-radius: 12px;
+            border-radius: 14px;
             cursor: pointer;
             transition: 0.2s ease;
-            margin-top: 8px;
+            margin-top: 6px;
         }
 
-        .submit-btn:hover { background: #0d4f9b; }
-
-        .note-box {
-            background: #fff7e6;
-            border-left: 5px solid #f0ad00;
-            color: #5c4400;
-            padding: 16px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            line-height: 1.6;
-            font-size: 16px;
-        }
-
-        .commands-box {
-            background: #eef7ff;
-            border-left: 5px solid #1565c0;
-            color: #0d47a1;
-            padding: 16px;
-            border-radius: 10px;
-            margin-bottom: 24px;
-            line-height: 1.6;
-            font-size: 15px;
-        }
-
-        .commands-box strong {
-            display: block;
-            margin-bottom: 6px;
+        .submit-btn:hover {
+            background: #0d4f9b;
         }
 
         .camera-box {
             display: none;
-            margin-top: 20px;
+            margin-top: 22px;
             background: #f9fcff;
             border: 1px solid #cfe4fa;
-            border-radius: 14px;
-            padding: 20px;
+            border-radius: 16px;
+            padding: 22px;
         }
 
         .camera-title {
-            font-size: 20px;
-            font-weight: bold;
-            color: #0b4ea2;
-            margin-bottom: 14px;
             text-align: center;
+            color: #0b4ea2;
+            font-size: 22px;
+            font-weight: bold;
+            margin-bottom: 14px;
         }
 
         .camera-status {
             background: #eef7ff;
             border: 1px solid #8cbcf0;
             color: #0d47a1;
-            padding: 10px 12px;
+            padding: 12px 14px;
             border-radius: 10px;
-            margin-bottom: 14px;
+            margin-bottom: 16px;
             font-size: 14px;
             text-align: center;
+            line-height: 1.5;
         }
 
         video {
             width: 100%;
-            max-width: 520px;
+            max-width: 560px;
             display: block;
             margin: 0 auto 16px auto;
-            border-radius: 12px;
+            border-radius: 14px;
             background: #000;
+            border: 3px solid #d6e6f8;
         }
 
         .camera-actions {
@@ -229,9 +233,9 @@
 
         .camera-btn {
             border: none;
-            color: white;
-            padding: 12px 18px;
-            border-radius: 10px;
+            color: #fff;
+            padding: 13px 18px;
+            border-radius: 12px;
             cursor: pointer;
             font-size: 15px;
             font-weight: bold;
@@ -241,41 +245,84 @@
         .capture-btn { background: #1565c0; }
         .close-btn { background: #d32f2f; }
 
-        .result-card {
-            background: #dff0ff;
-            border: 1px solid #9ac8f7;
+        .preview-box {
+            display: none;
+            margin-top: 16px;
+            background: #ffffff;
+            border: 1px solid #d6e6f8;
             border-radius: 14px;
-            padding: 22px;
-            margin-top: 20px;
+            padding: 16px;
+        }
+
+        .preview-title {
+            font-weight: bold;
+            color: #0b4ea2;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .preview-item {
+            text-align: center;
+        }
+
+        .preview-item img {
+            width: 100%;
+            max-height: 220px;
+            object-fit: contain;
+            border-radius: 12px;
+            border: 2px solid #d6e6f8;
+            background: #fff;
+            padding: 8px;
+        }
+
+        .preview-label {
+            margin-top: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            color: #334155;
+        }
+
+        .result-card {
+            margin-top: 22px;
+            background: #f8fbff;
+            border: 1px solid #cfe4fa;
+            border-radius: 18px;
+            padding: 24px;
         }
 
         .result-title {
             color: #0b4ea2;
-            font-size: 24px;
+            font-size: 26px;
             font-weight: bold;
             margin-bottom: 18px;
+            text-align: center;
+        }
+
+        .status-banner {
+            padding: 16px 18px;
+            border-radius: 14px;
+            font-weight: bold;
+            margin-bottom: 18px;
+            font-size: 16px;
+            line-height: 1.6;
         }
 
         .status-safe {
             background: #e6f7e8;
             border: 1px solid #74c476;
             color: #217a2d;
-            padding: 14px 16px;
-            border-radius: 12px;
-            font-weight: bold;
-            margin-bottom: 22px;
-            font-size: 16px;
         }
 
         .status-warning {
             background: #ffeaea;
             border: 1px solid #f28b82;
             color: #c62828;
-            padding: 14px 16px;
-            border-radius: 12px;
-            font-weight: bold;
-            margin-bottom: 22px;
-            font-size: 16px;
         }
 
         .swap-note {
@@ -289,50 +336,76 @@
             font-weight: bold;
         }
 
-        .result-row {
-            margin-bottom: 16px;
-            font-size: 18px;
-            line-height: 1.6;
+        .result-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 10px;
         }
 
-        .result-row strong { color: #1d2b3a; }
+        .result-item {
+            background: #ffffff;
+            border: 1px solid #dbe8f8;
+            border-radius: 14px;
+            padding: 16px;
+        }
+
+        .result-label {
+            font-size: 14px;
+            font-weight: bold;
+            color: #0b4ea2;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .result-value {
+            font-size: 17px;
+            line-height: 1.6;
+            color: #1f2d3d;
+            word-break: break-word;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
 
         .button-row {
             display: flex;
             flex-wrap: wrap;
             gap: 12px;
             margin: 22px 0 18px 0;
+            justify-content: center;
         }
 
         .voice-btn {
             border: none;
-            color: white;
+            color: #fff;
             padding: 14px 18px;
             border-radius: 12px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: bold;
         }
 
         .read-btn { background: #2e7d32; }
         .repeat-btn { background: #6a1b9a; }
-        .stop-btn { background: #d32f2f; }
+        .stop-read-btn { background: #d32f2f; }
         .clear-btn { background: #616161; }
 
         .buy-box {
-            background: #f7f7f7;
-            border: 1px solid #d5d5d5;
-            border-radius: 12px;
-            padding: 16px;
+            background: #ffffff;
+            border: 1px solid #dbe8f8;
+            border-radius: 14px;
+            padding: 18px;
             margin-top: 10px;
-            margin-bottom: 20px;
         }
 
         .buy-title {
             font-size: 18px;
             font-weight: bold;
             margin-bottom: 14px;
-            color: #333;
+            color: #1f2d3d;
         }
 
         .buy-buttons {
@@ -344,57 +417,120 @@
         .shop-btn {
             display: inline-block;
             text-decoration: none;
-            color: white;
+            color: #fff;
             background: #00897b;
-            padding: 12px 18px;
-            border-radius: 10px;
+            padding: 13px 18px;
+            border-radius: 12px;
             font-weight: bold;
-            font-size: 16px;
+            font-size: 15px;
         }
 
         .footer-note {
-            margin-top: 22px;
+            margin-top: 18px;
             font-size: 14px;
             color: #555;
             background: #f7fbff;
             border-left: 4px solid #1565c0;
-            padding: 12px 14px;
+            padding: 14px;
             border-radius: 8px;
-            line-height: 1.6;
+            line-height: 1.7;
+        }
+
+        .debug-toggle-wrap {
+            margin-top: 18px;
+            text-align: center;
+        }
+
+        .debug-btn {
+            border: none;
+            background: #455a64;
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .debug-box {
+            display: none;
+            margin-top: 14px;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 14px;
+            padding: 16px;
+        }
+
+        .debug-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #334155;
+            margin-bottom: 10px;
+        }
+
+        .debug-text {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 13px;
+            color: #334155;
+            max-height: 220px;
+            overflow-y: auto;
+            margin-bottom: 12px;
+        }
+
+        @media (max-width: 900px) {
+            .upload-grid,
+            .result-grid,
+            .preview-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         @media (max-width: 768px) {
             .container {
-                margin: 12px;
-                padding: 18px;
+                margin: 10px;
+                padding: 0;
             }
 
-            h1 { font-size: 22px; }
+            .main-card {
+                padding: 18px;
+                border-radius: 16px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            .subtitle {
+                font-size: 15px;
+            }
 
             .submit-btn {
                 font-size: 18px;
-                padding: 14px;
+                padding: 15px;
             }
 
-            .result-row { font-size: 16px; }
-
+            .action-btn,
+            .camera-btn,
             .voice-btn,
-            .shop-btn,
-            .assist-btn,
-            .camera-btn {
+            .shop-btn {
                 width: 100%;
                 text-align: center;
             }
 
+            .top-actions,
+            .camera-actions,
             .button-row,
-            .buy-buttons,
-            .accessibility-bar,
-            .camera-actions {
+            .buy-buttons {
                 flex-direction: column;
             }
 
-            .upload-options {
-                grid-template-columns: 1fr;
+            .result-value {
+                font-size: 16px;
             }
         }
     </style>
@@ -402,142 +538,202 @@
 <body>
 
 <div class="container">
-    <h1>AI-Powered Medicine & Prescription Verifier<br>for Senior Citizens and Visually Impaired Users</h1>
+    <div class="main-card">
+        <h1>AI-Powered Medicine & Prescription Verifier<br>for Senior Citizens and Visually Impaired Users</h1>
 
-    <div class="subtitle">
-        The system provides guided voice assistance, automatic camera-based capture flow, prescription comparison, and spoken medicine safety results.
-    </div>
+        <div class="subtitle">
+            This system provides guided voice assistance, camera-based image capture, prescription comparison,
+            medicine safety verification, and automatic spoken result output.
+        </div>
 
-    <div class="accessibility-bar">
-        <button type="button" class="assist-btn guide-btn" onclick="readInstructions()">
-            🔊 Read Instructions
-        </button>
-        <button type="button" class="assist-btn voice-start-btn" onclick="startVoiceCommands()">
-            🎤 Start Voice Commands
-        </button>
-        <button type="button" class="assist-btn voice-stop-btn" onclick="stopAllVoiceSystems()">
-            ⛔ Stop Voice
-        </button>
-    </div>
+        <div class="top-actions">
+            <button type="button" class="action-btn btn-guide" onclick="readInstructions()">
+                🔊 Read Instructions
+            </button>
+            <button type="button" class="action-btn btn-voice" onclick="startVoiceCommands()">
+                🎤 Start Voice Commands
+            </button>
+            <button type="button" class="action-btn btn-stop" onclick="stopAllVoiceSystems()">
+                ⛔ Stop Voice
+            </button>
+        </div>
 
-    <div class="commands-box">
-        <strong>Voice Commands You Can Say:</strong>
-        “yes”, “ok”, “read instructions”, “open medicine camera”, “open prescription camera”, “capture”, “analyze”, “read result”, “stop”, “clear”
-    </div>
+        <div class="info-box commands-box">
+            <strong>Voice Commands You Can Say:</strong><br>
+            “yes”, “ok”, “read instructions”, “open medicine camera”, “open prescription camera”, “capture”,
+            “analyze”, “read result”, “stop”, “clear”
+        </div>
 
-    <div class="form-card">
-        <div class="section-title">Upload / Guided Camera Capture</div>
+        <div class="section-card">
+            <div class="section-title">Upload or Guided Camera Capture</div>
 
-        <form method="POST" enctype="multipart/form-data" id="uploadForm">
-            {% csrf_token %}
+            <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                {% csrf_token %}
 
-            <!-- Normal Upload Fallback -->
-            <div class="form-group">
-                <label for="medicine_image">Medicine Image (Optional Manual Upload)</label>
-                <div class="help-text">
-                    If voice-guided camera is not used, you can upload the medicine image manually.
-                </div>
-                <div class="upload-options">
-                    <div class="upload-card">
-                        <div class="upload-card-title">📁 Upload Medicine from Device</div>
-                        <input type="file" name="medicine_image" id="medicine_image" accept="image/*">
-                        <div class="small-note">Optional fallback upload.</div>
+                <div class="form-group">
+                    <label for="medicine_image">Manual Upload (Optional Fallback)</label>
+                    <div class="help-text">
+                        If voice-guided camera capture is not used, you can upload the medicine and prescription images manually.
                     </div>
-                    <div class="upload-card">
-                        <div class="upload-card-title">📁 Upload Prescription from Device</div>
-                        <input type="file" name="prescription_image" id="prescription_image" accept="image/*">
-                        <div class="small-note">Optional fallback upload.</div>
+
+                    <div class="upload-grid">
+                        <div class="upload-card">
+                            <div class="upload-card-title">📁 Upload Medicine Image</div>
+                            <input type="file" name="medicine_image" id="medicine_image" accept="image/*" onchange="previewManualUpload(this, 'manualMedicinePreview')">
+                            <div class="small-note">Optional fallback if camera is not used.</div>
+                        </div>
+
+                        <div class="upload-card">
+                            <div class="upload-card-title">📁 Upload Prescription Image</div>
+                            <input type="file" name="prescription_image" id="prescription_image" accept="image/*" onchange="previewManualUpload(this, 'manualPrescriptionPreview')">
+                            <div class="small-note">Optional fallback if camera is not used.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hidden fields for camera capture -->
+                <input type="hidden" name="medicine_camera_data" id="medicine_camera_data">
+                <input type="hidden" name="prescription_camera_data" id="prescription_camera_data">
+
+                <button type="button" class="submit-btn" id="analyzeBtn" onclick="submitIfReady()">
+                    Analyze Medicine & Prescription
+                </button>
+            </form>
+        </div>
+
+        <div class="info-box note-box">
+            <strong>Accessibility Note:</strong>
+            After spoken instructions finish, the system can automatically ask for voice confirmation, open the camera,
+            capture medicine and prescription images, analyze them, and read the result aloud.
+        </div>
+
+        <!-- Camera Section -->
+        <div class="camera-box" id="cameraBox">
+            <div class="camera-title" id="cameraTitle">Live Camera Capture</div>
+            <div class="camera-status" id="cameraStatus">Waiting to open camera...</div>
+
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas" style="display:none;"></canvas>
+
+            <div class="camera-actions">
+                <button type="button" class="camera-btn open-btn" onclick="openCameraForCurrentStep()">📷 Open Camera</button>
+                <button type="button" class="camera-btn capture-btn" onclick="captureCurrentImage()">📸 Capture Now</button>
+                <button type="button" class="camera-btn close-btn" onclick="closeCamera()">❌ Close Camera</button>
+            </div>
+        </div>
+
+        <!-- Preview Section -->
+        <div class="preview-box" id="previewBox">
+            <div class="preview-title">Captured / Uploaded Image Preview</div>
+            <div class="preview-grid">
+                <div class="preview-item">
+                    <img id="manualMedicinePreview" src="" alt="Medicine Preview" style="display:none;">
+                    <div class="preview-label">Medicine Image</div>
+                </div>
+                <div class="preview-item">
+                    <img id="manualPrescriptionPreview" src="" alt="Prescription Preview" style="display:none;">
+                    <div class="preview-label">Prescription Image</div>
+                </div>
+            </div>
+        </div>
+
+        {% if result %}
+        <div class="result-card" id="resultCard">
+            <div class="result-title">Analysis Result</div>
+
+            {% if "SAFE" in result.status_banner %}
+                <div class="status-banner status-safe">
+                    {{ result.status_banner }}
+                </div>
+            {% else %}
+                <div class="status-banner status-warning">
+                    {{ result.status_banner }}
+                </div>
+            {% endif %}
+
+            {% if result.was_swapped %}
+                <div class="swap-note">
+                    ℹ️ System detected reversed uploads and automatically corrected them.
+                </div>
+            {% endif %}
+
+            <div class="result-grid">
+                <div class="result-item">
+                    <div class="result-label">Medicine Name</div>
+                    <div class="result-value">{{ result.medicine_name }}</div>
+                </div>
+
+                <div class="result-item">
+                    <div class="result-label">Expiry Date</div>
+                    <div class="result-value">{{ result.expiry_date }}</div>
+                </div>
+
+                <div class="result-item full-width">
+                    <div class="result-label">Dosage Instructions</div>
+                    <div class="result-value">{{ result.dosage_info }}</div>
+                </div>
+
+                <div class="result-item full-width">
+                    <div class="result-label">Prescription Match Status</div>
+                    <div class="result-value">{{ result.match_status }}</div>
+                </div>
+
+                <div class="result-item">
+                    <div class="result-label">Duration</div>
+                    <div class="result-value">{{ result.duration }}</div>
+                </div>
+
+                <div class="result-item">
+                    <div class="result-label">Auto Correction</div>
+                    <div class="result-value">
+                        {% if result.was_swapped %}
+                            Reversed uploads detected and corrected
+                        {% else %}
+                            Not required
+                        {% endif %}
                     </div>
                 </div>
             </div>
 
-            <!-- Hidden camera-captured image fields -->
-            <input type="hidden" name="medicine_camera_data" id="medicine_camera_data">
-            <input type="hidden" name="prescription_camera_data" id="prescription_camera_data">
+            <div class="button-row">
+                <button type="button" class="voice-btn read-btn" onclick="readResultAloud()">🔊 Read Result Aloud</button>
+                <button type="button" class="voice-btn repeat-btn" onclick="readInstructions()">🔁 Repeat Instructions</button>
+                <button type="button" class="voice-btn stop-read-btn" onclick="stopAllVoiceSystems()">⛔ Stop Voice</button>
+                <button type="button" class="voice-btn clear-btn" onclick="clearAllData()">🗑 Clear</button>
+            </div>
 
-            <button type="submit" class="submit-btn" id="analyzeBtn">Analyze Medicine & Prescription</button>
-        </form>
-    </div>
+            <div class="buy-box">
+                <div class="buy-title">Buy / Check Online</div>
+                <div class="buy-buttons">
+                    <a href="{{ result.apollo_link }}" target="_blank" class="shop-btn">Apollo Pharmacy</a>
+                    <a href="{{ result.tata_1mg_link }}" target="_blank" class="shop-btn">Tata 1mg</a>
+                </div>
+            </div>
 
-    <div class="note-box">
-        <strong>Accessibility Note:</strong> After spoken instructions finish, the system can automatically ask for voice confirmation, open the camera, capture medicine and prescription images, analyze them, and read the result aloud.
-    </div>
+            <div class="footer-note">
+                <strong>Important:</strong> This tool is for assistance only. Always confirm medicine name, expiry date,
+                dosage instructions, and prescription match with a doctor or pharmacist before use.
+            </div>
 
-    <!-- Camera Preview Section -->
-    <div class="camera-box" id="cameraBox">
-        <div class="camera-title" id="cameraTitle">Live Camera Capture</div>
-        <div class="camera-status" id="cameraStatus">Waiting to open camera...</div>
-        <video id="video" autoplay playsinline></video>
-        <canvas id="canvas" style="display:none;"></canvas>
+            <!-- Optional Debug Section (hidden by default) -->
+            {% if result.medicine_text or result.prescription_text %}
+            <div class="debug-toggle-wrap">
+                <button type="button" class="debug-btn" onclick="toggleDebugBox()">🛠 Show / Hide OCR Debug Text</button>
+            </div>
 
-        <div class="camera-actions">
-            <button type="button" class="camera-btn open-btn" onclick="openCameraForCurrentStep()">📷 Open Camera</button>
-            <button type="button" class="camera-btn capture-btn" onclick="captureCurrentImage()">📸 Capture Now</button>
-            <button type="button" class="camera-btn close-btn" onclick="closeCamera()">❌ Close Camera</button>
+            <div class="debug-box" id="debugBox">
+                <div class="debug-title">OCR Debug Output (For Testing / Viva Only)</div>
+
+                <div class="debug-title">Medicine OCR Text</div>
+                <div class="debug-text">{{ result.medicine_text }}</div>
+
+                <div class="debug-title">Prescription OCR Text</div>
+                <div class="debug-text">{{ result.prescription_text }}</div>
+            </div>
+            {% endif %}
         </div>
-    </div>
-
-    {% if result %}
-    <div class="result-card" id="resultCard">
-        <div class="result-title">Analysis Result</div>
-
-        {% if result.match_found %}
-            <div class="status-safe">
-                ✅ SAFE: Medicine matches prescription. Still verify before use.
-            </div>
-        {% else %}
-            <div class="status-warning">
-                ⚠ WARNING: Medicine match not clearly confirmed. Verify before use.
-            </div>
         {% endif %}
-
-        {% if result.was_swapped %}
-            <div class="swap-note">
-                ℹ️ System auto-corrected reversed uploads.
-            </div>
-        {% endif %}
-
-        <div class="result-row">
-            <strong>Medicine Name:</strong> {{ result.medicine_name }}
-        </div>
-
-        <div class="result-row">
-            <strong>Expiry Date:</strong> {{ result.expiry_date }}
-        </div>
-
-        <div class="result-row">
-            <strong>Dosage Instructions:</strong> {{ result.dosage_info }}
-        </div>
-
-        <div class="result-row">
-            <strong>Prescription Match Status:</strong> {{ result.match_status }}
-        </div>
-
-        <div class="result-row">
-            <strong>Duration:</strong> {{ result.duration }}
-        </div>
-
-        <div class="button-row">
-            <button type="button" class="voice-btn read-btn" onclick="readResultAloud()">🔊 Read Result Aloud</button>
-            <button type="button" class="voice-btn repeat-btn" onclick="readInstructions()">🔁 Repeat Instructions</button>
-            <button type="button" class="voice-btn stop-btn" onclick="stopAllVoiceSystems()">⛔ Stop Voice</button>
-            <button type="button" class="voice-btn clear-btn" onclick="clearAllData()">🗑 Clear</button>
-        </div>
-
-        <div class="buy-box">
-            <div class="buy-title">Buy / Check Online:</div>
-            <div class="buy-buttons">
-                <a href="{{ result.apollo_link }}" target="_blank" class="shop-btn">Apollo Pharmacy</a>
-                <a href="{{ result.tata_1mg_link }}" target="_blank" class="shop-btn">Tata 1mg</a>
-            </div>
-        </div>
-
-        <div class="footer-note">
-            <strong>Important:</strong> This tool is for assistance only.
-            Always confirm medicine name, expiry date, and dosage with a doctor or pharmacist before use.
-        </div>
     </div>
-    {% endif %}
 </div>
 
 <script>
@@ -549,7 +745,6 @@
     let guidedFlowStarted = false;
     let currentCaptureStep = null; // "medicine" or "prescription"
     let waitingForConfirmation = false;
-    let waitingForCameraOpen = false;
     let waitingForCaptureCommand = false;
 
     const video = document.getElementById("video");
@@ -557,9 +752,10 @@
     const cameraBox = document.getElementById("cameraBox");
     const cameraTitle = document.getElementById("cameraTitle");
     const cameraStatus = document.getElementById("cameraStatus");
+    const previewBox = document.getElementById("previewBox");
 
     // =========================
-    // SPEAK
+    // SPEAK FUNCTIONS
     // =========================
     function stopReading() {
         if ('speechSynthesis' in window) {
@@ -589,7 +785,8 @@
     }
 
     function readInstructions() {
-        const instructions = "Welcome to the AI Powered Medicine and Prescription Verifier. After these instructions, I will ask whether to turn on the camera to capture the medicine image. Please say yes or ok. Then I will capture the medicine, next I will ask for prescription capture, then analyze automatically, and finally read the result aloud.";
+        const instructions = "Welcome to the AI Powered Medicine and Prescription Verifier. After these instructions, I will ask whether to turn on the camera to capture the medicine image. Please say yes or ok. Then I will capture the medicine image. Next, I will ask for prescription capture. Then I will analyze automatically and finally read the result aloud.";
+
         speakText(instructions, function () {
             if (!guidedFlowStarted && !document.getElementById("resultCard")) {
                 guidedFlowStarted = true;
@@ -616,8 +813,8 @@
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
         if (!SpeechRecognition) {
-            alert("Voice commands are supported best in Google Chrome. Basic spoken instructions and spoken results will still work.");
-            speakText("Voice commands are supported best in Google Chrome. Basic spoken instructions and spoken results will still work.");
+            alert("Voice commands are supported best in Google Chrome. Spoken instructions and spoken results will still work.");
+            speakText("Voice commands are supported best in Google Chrome. Spoken instructions and spoken results will still work.");
             return;
         }
 
@@ -660,7 +857,6 @@
                 return;
             }
 
-            // Guided confirmation for medicine/prescription
             if (waitingForConfirmation && (lastResult.includes("yes") || lastResult.includes("ok"))) {
                 waitingForConfirmation = false;
                 openCameraForCurrentStep();
@@ -765,7 +961,6 @@
 
             video.srcObject = stream;
             cameraStatus.textContent = "Camera is ON. Auto capture will happen in 3 seconds. Or say capture.";
-
             speakText("Camera is on. Auto capture will happen in 3 seconds. Or say capture now.");
 
             waitingForCaptureCommand = true;
@@ -799,11 +994,13 @@
         const ctx = canvas.getContext("2d");
         ctx.drawImage(video, 0, 0, videoWidth, videoHeight);
 
-        const imageData = canvas.toDataURL("image/jpeg", 0.9);
+        const imageData = canvas.toDataURL("image/jpeg", 0.92);
 
         if (currentCaptureStep === "medicine") {
             document.getElementById("medicine_camera_data").value = imageData;
+            setPreviewImage("manualMedicinePreview", imageData);
             cameraStatus.textContent = "Medicine image captured successfully.";
+
             speakText("Medicine image captured successfully.", function () {
                 closeCamera();
                 setTimeout(() => {
@@ -812,7 +1009,9 @@
             });
         } else if (currentCaptureStep === "prescription") {
             document.getElementById("prescription_camera_data").value = imageData;
+            setPreviewImage("manualPrescriptionPreview", imageData);
             cameraStatus.textContent = "Prescription image captured successfully.";
+
             speakText("Prescription image captured successfully. Analyzing now.", function () {
                 closeCamera();
                 setTimeout(() => {
@@ -827,7 +1026,35 @@
             stream.getTracks().forEach(track => track.stop());
             stream = null;
         }
-        video.srcObject = null;
+
+        if (video) {
+            video.srcObject = null;
+        }
+    }
+
+    // =========================
+    // PREVIEW
+    // =========================
+    function setPreviewImage(elementId, dataUrl) {
+        const img = document.getElementById(elementId);
+        if (!img) return;
+
+        img.src = dataUrl;
+        img.style.display = "block";
+        previewBox.style.display = "block";
+    }
+
+    function previewManualUpload(input, previewId) {
+        if (!input.files || !input.files[0]) return;
+
+        const file = input.files[0];
+        const reader = new FileReader();
+
+        reader.onload = function(e) {
+            setPreviewImage(previewId, e.target.result);
+        };
+
+        reader.readAsDataURL(file);
     }
 
     // =========================
@@ -845,10 +1072,12 @@
 
         if (!medicineReady || !prescriptionReady) {
             speakText("Both medicine and prescription images are required before analysis.");
+            alert("Please provide both medicine and prescription images.");
             return;
         }
 
         speakText("Analyzing medicine and prescription now.");
+
         setTimeout(() => {
             document.getElementById("uploadForm").submit();
         }, 700);
@@ -866,15 +1095,36 @@
         document.getElementById("medicine_camera_data").value = "";
         document.getElementById("prescription_camera_data").value = "";
 
+        const medicinePreview = document.getElementById("manualMedicinePreview");
+        const prescriptionPreview = document.getElementById("manualPrescriptionPreview");
+
+        if (medicinePreview) {
+            medicinePreview.src = "";
+            medicinePreview.style.display = "none";
+        }
+
+        if (prescriptionPreview) {
+            prescriptionPreview.src = "";
+            prescriptionPreview.style.display = "none";
+        }
+
+        if (previewBox) {
+            previewBox.style.display = "none";
+        }
+
         const resultCard = document.getElementById("resultCard");
         if (resultCard) {
             resultCard.remove();
         }
 
+        const debugBox = document.getElementById("debugBox");
+        if (debugBox) {
+            debugBox.style.display = "none";
+        }
+
         guidedFlowStarted = false;
         currentCaptureStep = null;
         waitingForConfirmation = false;
-        waitingForCameraOpen = false;
         waitingForCaptureCommand = false;
 
         window.scrollTo({
@@ -887,6 +1137,20 @@
                 readInstructions();
             }, 700);
         });
+    }
+
+    // =========================
+    // DEBUG TOGGLE
+    // =========================
+    function toggleDebugBox() {
+        const debugBox = document.getElementById("debugBox");
+        if (!debugBox) return;
+
+        if (debugBox.style.display === "block") {
+            debugBox.style.display = "none";
+        } else {
+            debugBox.style.display = "block";
+        }
     }
 
     // =========================
