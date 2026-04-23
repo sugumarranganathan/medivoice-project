@@ -25,8 +25,11 @@ SECRET_KEY = 'django-insecure-k%(+^+-9qyish1slx+9$d07_02j6s0w5tsog!9wl1vkwg2$r1r
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = [
+    'medivoice-project.onrender.com',
+    'localhost',
+    '127.0.0.1',
+]
 
 # Application definition
 
