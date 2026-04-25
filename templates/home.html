@@ -678,6 +678,17 @@
                 <p class="small">{{ result.medicine_text|default:"No text extracted" }}</p>
             </div>
 
+            <!-- DEBUG BOXES -->
+            <div class="info-box">
+                <strong>Prescription OCR Debug:</strong>
+                <p class="small">{{ result.prescription_debug|default:"No debug info" }}</p>
+            </div>
+
+            <div class="info-box">
+                <strong>Medicine OCR Debug:</strong>
+                <p class="small">{{ result.medicine_debug|default:"No debug info" }}</p>
+            </div>
+
             {% if result.prescription_candidates %}
             <div class="info-box">
                 <strong>Prescription Medicine Candidates:</strong>
@@ -727,7 +738,6 @@
         const hiddenInput = getEl(type + '_camera_data');
         const preview = getEl(type + 'Preview');
         const previewLabel = getEl(type + 'PreviewLabel');
-        const video = getEl(type + 'Video');
 
         if (hiddenInput) hiddenInput.value = '';
 
@@ -738,10 +748,6 @@
 
         if (previewLabel) {
             previewLabel.classList.add('hidden');
-        }
-
-        if (video) {
-            video.classList.add('hidden');
         }
 
         stopCamera(type);
@@ -822,7 +828,6 @@
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0, width, height);
 
-        // JPEG for smaller upload size, better for Render
         const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
 
         hiddenInput.value = dataUrl;
@@ -909,7 +914,6 @@
         return true;
     }
 
-    // If user uploads file, clear camera hidden data for that side
     getEl('prescription_image').addEventListener('change', function () {
         if (this.files.length > 0) {
             clearCameraIfFileUsed('prescription');
@@ -922,7 +926,6 @@
         }
     });
 
-    // Form submit
     getEl('mainForm').addEventListener('submit', function (e) {
         if (isSubmitting) {
             e.preventDefault();
@@ -940,13 +943,11 @@
         return true;
     });
 
-    // Stop cameras when leaving page
     window.addEventListener('beforeunload', () => {
         stopCamera('prescription');
         stopCamera('medicine');
     });
 
-    // Auto scroll to result + auto speak
     window.addEventListener('load', function () {
         const resultSection = getEl('resultSection');
         if (resultSection) {
@@ -955,15 +956,11 @@
             }, 300);
         }
 
-        // Try autoplay fallback for Servam audio
         const audio = getEl('servamAudio');
         if (audio) {
-            audio.play().catch(() => {
-                // browser blocked autoplay
-            });
+            audio.play().catch(() => {});
         }
 
-        // Auto speak browser TTS as fallback
         {% if result and result.voice_message %}
         setTimeout(() => {
             try {
@@ -975,7 +972,6 @@
         {% endif %}
     });
 
-    // Safety fallback if navigation interrupted
     window.addEventListener('pageshow', function () {
         hideLoading();
         isSubmitting = false;
