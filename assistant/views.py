@@ -6,6 +6,7 @@ from io import BytesIO
 from datetime import datetime
 from difflib import SequenceMatcher
 
+from PIL import Image
 from django.conf import settings
 from django.shortcuts import render
 from django.core.files.storage import default_storage
@@ -50,6 +51,69 @@ def save_base64_image(data_url, file_name="camera_capture.jpg", folder="uploads"
 
 
 # ==========================================
+# IMAGE COMPRESSION FOR OCR SPACE FREE PLAN
+# ==========================================
+
+def prepare_image_for_ocr(image_path, max_size_bytes=1400000):
+    """
+    OCR.Space free plan max is 1.5 MB.
+    We compress to ~1.4 MB for safety.
+    """
+    try:
+        if not image_path or not os.path.exists(image_path):
+            return image_path, "Image file not found"
+
+        original_size = os.path.getsize(image_path)
+
+        if original_size <= max_size_bytes:
+            return image_path, f"Original size OK ({original_size} bytes)"
+
+        img = Image.open(image_path)
+
+        # Convert RGBA/PNG/WebP safely to RGB JPEG
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Start with original dimensions
+        width, height = img.size
+
+        # New compressed path
+        compressed_path = os.path.splitext(image_path)[0] + "_ocr.jpg"
+
+        # Try multiple compression steps
+        for scale in [1.0, 0.9, 0.8, 0.7, 0.6]:
+            new_w = max(800, int(width * scale))
+            new_h = max(800, int(height * scale))
+
+            resized = img.resize((new_w, new_h), Image.LANCZOS)
+
+            for quality in [85, 75, 65, 55, 45, 35]:
+                resized.save(
+                    compressed_path,
+                    format="JPEG",
+                    quality=quality,
+                    optimize=True
+                )
+
+                if os.path.exists(compressed_path):
+                    new_size = os.path.getsize(compressed_path)
+                    if new_size <= max_size_bytes:
+                        return compressed_path, f"Compressed from {original_size} to {new_size} bytes"
+
+        # If still too big, return best attempt
+        if os.path.exists(compressed_path):
+            new_size = os.path.getsize(compressed_path)
+            return compressed_path, f"Compressed best effort: {original_size} -> {new_size} bytes"
+
+        return image_path, f"Compression failed, original size {original_size} bytes"
+
+    except Exception as e:
+        return image_path, f"Compression error: {str(e)}"
+
+
+# ==========================================
 # TEXT HELPERS
 # ==========================================
 
@@ -67,7 +131,7 @@ def normalize_text(text):
 
 
 # ==========================================
-# OCR (FIXED FOR OCR.SPACE)
+# OCR (WITH AUTO COMPRESSION)
 # ==========================================
 
 def extract_text_from_image(image_path):
@@ -80,10 +144,13 @@ def extract_text_from_image(image_path):
         if not image_path or not os.path.exists(image_path):
             return "", "Image file not found"
 
-        with open(image_path, "rb") as f:
+        # Compress/resize before OCR
+        prepared_path, prep_debug = prepare_image_for_ocr(image_path)
+
+        with open(prepared_path, "rb") as f:
             response = requests.post(
                 "https://api.ocr.space/parse/image",
-                files={"file": f},   # ✅ FIXED: use 'file' not 'filename'
+                files={"file": f},
                 data={
                     "apikey": api_key,
                     "language": "eng",
@@ -97,21 +164,21 @@ def extract_text_from_image(image_path):
 
         if response.status_code != 200:
             try:
-                return "", f"OCR HTTP error: {response.status_code} | {response.text[:300]}"
+                return "", f"{prep_debug} | OCR HTTP error: {response.status_code} | {response.text[:300]}"
             except Exception:
-                return "", f"OCR HTTP error: {response.status_code}"
+                return "", f"{prep_debug} | OCR HTTP error: {response.status_code}"
 
         try:
             data = response.json()
         except Exception:
-            return "", f"OCR invalid JSON: {response.text[:300]}"
+            return "", f"{prep_debug} | OCR invalid JSON: {response.text[:300]}"
 
         if data.get("IsErroredOnProcessing"):
-            return "", f"OCR processing error: {data.get('ErrorMessage', 'Unknown error')}"
+            return "", f"{prep_debug} | OCR processing error: {data.get('ErrorMessage', 'Unknown error')}"
 
         parsed_results = data.get("ParsedResults", [])
         if not parsed_results:
-            return "", f"No ParsedResults from OCR. Raw: {str(data)[:300]}"
+            return "", f"{prep_debug} | No ParsedResults from OCR. Raw: {str(data)[:300]}"
 
         text = "\n".join(
             item.get("ParsedText", "")
@@ -120,9 +187,9 @@ def extract_text_from_image(image_path):
         ).strip()
 
         if not text:
-            return "", "OCR returned empty text"
+            return "", f"{prep_debug} | OCR returned empty text"
 
-        return clean_text(text), "OCR success"
+        return clean_text(text), f"{prep_debug} | OCR success"
 
     except Exception as e:
         return "", f"OCR exception: {str(e)}"
