@@ -9,84 +9,127 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --bg: #f4f7fb;
+            --card: #ffffff;
+            --soft: #f8fafc;
+            --line: #dbeafe;
+            --line2: #cbd5e1;
+            --primary: #1d4ed8;
+            --primary-dark: #1e3a8a;
+            --success: #16a34a;
+            --success-bg: #dcfce7;
+            --success-text: #166534;
+            --danger: #dc2626;
+            --danger-bg: #fee2e2;
+            --danger-text: #991b1b;
+            --purple: #7c3aed;
+            --text: #0f172a;
+            --muted: #475569;
+        }
+
         body {
             margin: 0;
             padding: 0;
             font-family: Arial, sans-serif;
-            background: #f4f7fb;
-            color: #222;
+            background: var(--bg);
+            color: var(--text);
         }
 
         .container {
-            max-width: 1000px;
+            max-width: 1100px;
             margin: 20px auto;
-            background: #ffffff;
-            border-radius: 16px;
-            padding: 20px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+            background: var(--card);
+            border-radius: 20px;
+            padding: 22px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
         }
 
         h1 {
             text-align: center;
-            color: #1e3a8a;
-            margin-bottom: 10px;
+            color: var(--primary-dark);
+            margin: 0 0 10px;
+            font-size: 3rem;
         }
 
-        p.subtitle {
+        .subtitle {
             text-align: center;
             color: #555;
             margin-top: 0;
-            margin-bottom: 25px;
+            margin-bottom: 26px;
+            font-size: 1.1rem;
+        }
+
+        .hero-note {
+            margin: 0 auto 22px;
+            max-width: 760px;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            color: #1e40af;
+            padding: 14px 16px;
+            border-radius: 14px;
+            text-align: center;
+            font-size: 15px;
+            line-height: 1.5;
         }
 
         .grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            gap: 22px;
         }
 
         .card {
             background: #f9fbff;
-            border: 1px solid #dbeafe;
-            border-radius: 14px;
-            padding: 16px;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 18px;
         }
 
         .card h2 {
             margin-top: 0;
-            font-size: 20px;
-            color: #1d4ed8;
+            margin-bottom: 14px;
+            font-size: 28px;
+            color: var(--primary);
         }
 
         label {
             font-weight: bold;
             display: block;
-            margin: 10px 0 6px;
+            margin: 10px 0 8px;
+            font-size: 16px;
         }
 
         input[type="file"] {
             width: 100%;
-            padding: 8px;
+            padding: 12px;
             background: #fff;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
+            border: 1px solid var(--line2);
+            border-radius: 10px;
+            font-size: 15px;
         }
 
         .camera-box {
-            margin-top: 12px;
-            padding: 12px;
+            margin-top: 14px;
+            padding: 14px;
             border: 1px dashed #94a3b8;
-            border-radius: 12px;
+            border-radius: 14px;
             background: #fff;
             text-align: center;
         }
 
+        .camera-title {
+            font-weight: bold;
+            font-size: 16px;
+            color: #333;
+        }
+
         video, canvas, img.preview {
             width: 100%;
-            max-height: 260px;
-            border-radius: 12px;
-            margin-top: 10px;
-            border: 1px solid #cbd5e1;
+            max-height: 280px;
+            border-radius: 14px;
+            margin-top: 12px;
+            border: 1px solid var(--line2);
             object-fit: cover;
             background: #000;
         }
@@ -95,16 +138,29 @@
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
-            margin-top: 10px;
+            margin-top: 12px;
+            justify-content: center;
         }
 
         button {
             border: none;
-            border-radius: 10px;
-            padding: 10px 14px;
-            font-size: 15px;
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-size: 16px;
             cursor: pointer;
             font-weight: bold;
+            transition: 0.2s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            opacity: 0.96;
+        }
+
+        button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
         }
 
         .btn-primary {
@@ -113,12 +169,12 @@
         }
 
         .btn-success {
-            background: #16a34a;
+            background: var(--success);
             color: white;
         }
 
         .btn-danger {
-            background: #dc2626;
+            background: var(--danger);
             color: white;
         }
 
@@ -129,79 +185,195 @@
 
         .submit-wrap {
             text-align: center;
-            margin-top: 25px;
+            margin-top: 28px;
         }
 
         .analyse-btn {
-            background: #7c3aed;
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
             color: white;
-            padding: 14px 28px;
-            font-size: 18px;
-            border-radius: 12px;
+            padding: 16px 34px;
+            font-size: 22px;
+            border-radius: 14px;
+            min-width: 260px;
+        }
+
+        .help-text {
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 14px;
+            text-align: center;
         }
 
         .result {
-            margin-top: 30px;
+            margin-top: 34px;
             padding: 20px;
-            border-radius: 16px;
-            background: #f8fafc;
-            border: 1px solid #cbd5e1;
+            border-radius: 18px;
+            background: var(--soft);
+            border: 1px solid var(--line2);
+            scroll-margin-top: 20px;
         }
 
         .result h2 {
             margin-top: 0;
-            color: #0f172a;
+            color: var(--text);
+            font-size: 2.2rem;
         }
 
         .status {
             font-size: 18px;
             font-weight: bold;
-            margin: 12px 0;
-            padding: 12px;
-            border-radius: 10px;
+            margin: 14px 0;
+            padding: 14px;
+            border-radius: 12px;
+            line-height: 1.5;
         }
 
         .ok {
-            background: #dcfce7;
-            color: #166534;
+            background: var(--success-bg);
+            color: var(--success-text);
         }
 
         .warn {
-            background: #fee2e2;
-            color: #991b1b;
+            background: var(--danger-bg);
+            color: var(--danger-text);
         }
 
         .info-box {
-            margin-top: 14px;
-            padding: 14px;
-            border-radius: 10px;
+            margin-top: 16px;
+            padding: 16px;
+            border-radius: 12px;
             background: white;
             border: 1px solid #e2e8f0;
         }
 
+        .info-box strong {
+            font-size: 16px;
+        }
+
         .small {
-            font-size: 14px;
-            color: #475569;
+            font-size: 15px;
+            color: var(--muted);
             word-break: break-word;
+            line-height: 1.6;
         }
 
         .list {
-            margin: 8px 0 0 18px;
+            margin: 10px 0 0 20px;
+        }
+
+        .list li {
+            margin-bottom: 6px;
+            line-height: 1.5;
         }
 
         .error-box {
-            background: #fee2e2;
-            color: #991b1b;
+            background: var(--danger-bg);
+            color: var(--danger-text);
             padding: 14px;
-            border-radius: 10px;
+            border-radius: 12px;
             font-weight: bold;
+            line-height: 1.5;
         }
 
         .hidden {
-            display: none;
+            display: none !important;
         }
 
-        @media (max-width: 768px) {
+        .preview-label {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #334155;
+            font-weight: bold;
+        }
+
+        .top-actions {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+
+        .speak-btn {
+            background: #0f766e;
+            color: white;
+            padding: 10px 18px;
+            font-size: 15px;
+            border-radius: 12px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        .badge-blue {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .badge-red {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+
+        .badge-green {
+            background: #dcfce7;
+            color: #15803d;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            padding: 20px;
+        }
+
+        .loading-box {
+            background: white;
+            border-radius: 18px;
+            padding: 24px;
+            width: 100%;
+            max-width: 420px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+        }
+
+        .spinner {
+            width: 54px;
+            height: 54px;
+            border: 5px solid #dbeafe;
+            border-top: 5px solid #4f46e5;
+            border-radius: 50%;
+            margin: 0 auto 16px;
+            animation: spin 1s linear infinite;
+        }
+
+        .loading-title {
+            font-size: 22px;
+            font-weight: bold;
+            color: #1e3a8a;
+            margin-bottom: 8px;
+        }
+
+        .loading-text {
+            color: #475569;
+            line-height: 1.5;
+            font-size: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 900px) {
             .grid {
                 grid-template-columns: 1fr;
             }
@@ -212,15 +384,46 @@
             }
 
             h1 {
-                font-size: 26px;
+                font-size: 2.4rem;
+            }
+
+            .card h2 {
+                font-size: 24px;
+            }
+
+            .result h2 {
+                font-size: 1.8rem;
+            }
+
+            .analyse-btn {
+                width: 100%;
+                font-size: 20px;
             }
         }
     </style>
 </head>
 <body>
+
+<div class="loading-overlay" id="loadingOverlay" aria-live="polite">
+    <div class="loading-box">
+        <div class="spinner"></div>
+        <div class="loading-title">Analysing Medicine Safety...</div>
+        <div class="loading-text">
+            Please wait while OCR and safety checks are running.<br>
+            This may take a few seconds on Render free plan.
+        </div>
+    </div>
+</div>
+
 <div class="container">
     <h1>MediVoice</h1>
     <p class="subtitle">Medicine Safety Checker for Blind & Elderly Users</p>
+
+    <div class="hero-note">
+        Upload or capture both a <strong>prescription image</strong> and a <strong>medicine image</strong>.
+        MediVoice will extract text, compare medicine names, check expiry details, identify dosage hints,
+        and provide a voice-friendly summary.
+    </div>
 
     <form method="POST" enctype="multipart/form-data" id="mainForm">
         {% csrf_token %}
@@ -234,10 +437,13 @@
                 <input type="file" name="prescription_image" id="prescription_image" accept="image/*">
 
                 <div class="camera-box">
-                    <strong>Or Use Camera</strong>
+                    <div class="camera-title">Or Use Camera</div>
+
                     <video id="prescriptionVideo" autoplay playsinline class="hidden"></video>
                     <canvas id="prescriptionCanvas" class="hidden"></canvas>
                     <img id="prescriptionPreview" class="preview hidden" alt="Prescription Preview">
+
+                    <div id="prescriptionPreviewLabel" class="preview-label hidden">Prescription image captured successfully</div>
 
                     <div class="btn-row">
                         <button type="button" class="btn-primary" onclick="startCamera('prescription')">Start Camera</button>
@@ -257,10 +463,13 @@
                 <input type="file" name="medicine_image" id="medicine_image" accept="image/*">
 
                 <div class="camera-box">
-                    <strong>Or Use Camera</strong>
+                    <div class="camera-title">Or Use Camera</div>
+
                     <video id="medicineVideo" autoplay playsinline class="hidden"></video>
                     <canvas id="medicineCanvas" class="hidden"></canvas>
                     <img id="medicinePreview" class="preview hidden" alt="Medicine Preview">
+
+                    <div id="medicinePreviewLabel" class="preview-label hidden">Medicine image captured successfully</div>
 
                     <div class="btn-row">
                         <button type="button" class="btn-primary" onclick="startCamera('medicine')">Start Camera</button>
@@ -274,12 +483,23 @@
         </div>
 
         <div class="submit-wrap">
-            <button type="submit" class="analyse-btn">Analyse Medicine Safety</button>
+            <button type="submit" class="analyse-btn" id="analyseBtn">Analyse Medicine Safety</button>
+            <div class="help-text">
+                For best results: use clear, bright, straight images with visible medicine name and expiry details.
+            </div>
         </div>
     </form>
 
     {% if result %}
-    <div class="result">
+    <div class="result" id="resultSection">
+        <div class="top-actions">
+            {% if result.voice_message %}
+            <button type="button" class="speak-btn" onclick="speakText(`{{ result.voice_message|escapejs }}`)">
+                🔊 Read Summary Aloud
+            </button>
+            {% endif %}
+        </div>
+
         <h2>Analysis Result</h2>
 
         {% if result.error %}
@@ -299,12 +519,16 @@
 
             <div class="info-box">
                 <strong>Expiry Date:</strong> {{ result.expiry_found|default:"Not detected" }}<br>
+
                 {% if result.expired == True %}
-                    <div class="status warn" style="margin-top:10px;">⚠️ Medicine appears expired</div>
+                    <div class="badge badge-red">Medicine appears expired</div>
+                    <div class="status warn" style="margin-top:10px;">⚠️ This medicine may be expired. Please do not use it without professional confirmation.</div>
                 {% elif result.expired == False %}
+                    <div class="badge badge-green">Expiry check passed</div>
                     <div class="status ok" style="margin-top:10px;">✅ Medicine does not appear expired</div>
                 {% else %}
-                    <div class="small" style="margin-top:10px;">Expiry could not be fully verified</div>
+                    <div class="badge badge-blue">Expiry uncertain</div>
+                    <div class="small" style="margin-top:10px;">Expiry could not be fully verified from the image.</div>
                 {% endif %}
             </div>
 
@@ -317,19 +541,19 @@
                         {% endfor %}
                     </ul>
                 {% else %}
-                    <div class="small">No clear dosage instructions found</div>
+                    <div class="small">No clear dosage instructions found.</div>
                 {% endif %}
             </div>
 
             <div class="info-box">
                 <strong>Voice Summary:</strong>
-                <p>{{ result.voice_message }}</p>
+                <p class="small" style="font-size:16px; color:#334155;">{{ result.voice_message }}</p>
             </div>
 
             {% if result.servam_audio_url %}
             <div class="info-box">
                 <strong>Servam Voice Output:</strong><br><br>
-                <audio controls autoplay style="width:100%;">
+                <audio controls autoplay style="width:100%;" id="servamAudio">
                     <source src="{{ result.servam_audio_url }}" type="audio/mpeg">
                     Your browser does not support the audio element.
                 </audio>
@@ -360,21 +584,27 @@
         try {
             const video = document.getElementById(type + 'Video');
             const preview = document.getElementById(type + 'Preview');
+            const previewLabel = document.getElementById(type + 'PreviewLabel');
 
-            if (preview) {
-                preview.classList.add('hidden');
-            }
+            if (preview) preview.classList.add('hidden');
+            if (previewLabel) previewLabel.classList.add('hidden');
 
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment" },
+                video: {
+                    facingMode: { ideal: "environment" }
+                },
                 audio: false
             });
+
+            if (streams[type]) {
+                stopCamera(type);
+            }
 
             streams[type] = stream;
             video.srcObject = stream;
             video.classList.remove('hidden');
         } catch (error) {
-            alert("Camera access failed. Please allow camera permission.");
+            alert("Camera access failed. Please allow camera permission and try again.");
             console.error(error);
         }
     }
@@ -383,15 +613,17 @@
         const video = document.getElementById(type + 'Video');
         const canvas = document.getElementById(type + 'Canvas');
         const preview = document.getElementById(type + 'Preview');
+        const previewLabel = document.getElementById(type + 'PreviewLabel');
         const hiddenInput = document.getElementById(type + '_camera_data');
+        const fileInput = document.getElementById(type + '_image');
 
         if (!video.srcObject) {
             alert("Please start camera first.");
             return;
         }
 
-        const width = video.videoWidth || 640;
-        const height = video.videoHeight || 480;
+        const width = video.videoWidth || 1280;
+        const height = video.videoHeight || 720;
 
         canvas.width = width;
         canvas.height = height;
@@ -399,11 +631,21 @@
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0, width, height);
 
-        const dataUrl = canvas.toDataURL('image/png');
+        // Slightly compress for faster upload
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
         hiddenInput.value = dataUrl;
+
+        // If camera used, clear file input
+        if (fileInput) {
+            fileInput.value = '';
+        }
 
         preview.src = dataUrl;
         preview.classList.remove('hidden');
+
+        if (previewLabel) {
+            previewLabel.classList.remove('hidden');
+        }
 
         stopCamera(type);
     }
@@ -422,10 +664,68 @@
         }
     }
 
-    // Clean up on page leave
+    function showLoading() {
+        document.getElementById('loadingOverlay').style.display = 'flex';
+        const btn = document.getElementById('analyseBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = 'Analysing...';
+        }
+    }
+
+    function speakText(text) {
+        if (!('speechSynthesis' in window)) {
+            alert("Speech is not supported in this browser.");
+            return;
+        }
+
+        window.speechSynthesis.cancel();
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-IN';
+        utterance.rate = 0.95;
+        utterance.pitch = 1;
+        utterance.volume = 1;
+
+        window.speechSynthesis.speak(utterance);
+    }
+
+    document.getElementById('mainForm').addEventListener('submit', function () {
+        const prescriptionFile = document.getElementById('prescription_image').files.length;
+        const medicineFile = document.getElementById('medicine_image').files.length;
+        const prescriptionCam = document.getElementById('prescription_camera_data').value;
+        const medicineCam = document.getElementById('medicine_camera_data').value;
+
+        if ((!prescriptionFile && !prescriptionCam) || (!medicineFile && !medicineCam)) {
+            alert("Please provide both prescription and medicine images before analysing.");
+            return false;
+        }
+
+        showLoading();
+    });
+
+    // Stop cameras when leaving page
     window.addEventListener('beforeunload', () => {
         stopCamera('prescription');
         stopCamera('medicine');
+    });
+
+    // Auto scroll to result
+    window.addEventListener('load', function () {
+        const resultSection = document.getElementById('resultSection');
+        if (resultSection) {
+            setTimeout(() => {
+                resultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 300);
+        }
+
+        // Try autoplay fallback for Servam audio
+        const audio = document.getElementById('servamAudio');
+        if (audio) {
+            audio.play().catch(() => {
+                // Browser blocked autoplay, user can click play manually
+            });
+        }
     });
 </script>
 </body>
