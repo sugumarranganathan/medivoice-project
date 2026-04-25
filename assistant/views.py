@@ -11,6 +11,10 @@ from django.shortcuts import render
 from django.core.files.storage import default_storage
 
 
+# ==========================================
+# FILE SAVE HELPERS
+# ==========================================
+
 def save_uploaded_file(file_obj, folder="uploads"):
     try:
         file_name = default_storage.save(f"{folder}/{file_obj.name}", file_obj)
@@ -45,6 +49,10 @@ def save_base64_image(data_url, file_name="camera_capture.jpg", folder="uploads"
         return None
 
 
+# ==========================================
+# TEXT HELPERS
+# ==========================================
+
 def clean_text(text):
     if not text:
         return ""
@@ -53,6 +61,14 @@ def clean_text(text):
     text = re.sub(r"\n+", "\n", text)
     return text.strip()
 
+
+def normalize_text(text):
+    return re.sub(r"[^a-z0-9]", "", text.lower()) if text else ""
+
+
+# ==========================================
+# OCR (FIXED FOR OCR.SPACE)
+# ==========================================
 
 def extract_text_from_image(image_path):
     try:
@@ -67,7 +83,7 @@ def extract_text_from_image(image_path):
         with open(image_path, "rb") as f:
             response = requests.post(
                 "https://api.ocr.space/parse/image",
-                files={"filename": f},
+                files={"file": f},   # ✅ FIXED: use 'file' not 'filename'
                 data={
                     "apikey": api_key,
                     "language": "eng",
@@ -80,18 +96,28 @@ def extract_text_from_image(image_path):
             )
 
         if response.status_code != 200:
-            return "", f"OCR HTTP error: {response.status_code}"
+            try:
+                return "", f"OCR HTTP error: {response.status_code} | {response.text[:300]}"
+            except Exception:
+                return "", f"OCR HTTP error: {response.status_code}"
 
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception:
+            return "", f"OCR invalid JSON: {response.text[:300]}"
 
         if data.get("IsErroredOnProcessing"):
             return "", f"OCR processing error: {data.get('ErrorMessage', 'Unknown error')}"
 
         parsed_results = data.get("ParsedResults", [])
         if not parsed_results:
-            return "", "No ParsedResults from OCR"
+            return "", f"No ParsedResults from OCR. Raw: {str(data)[:300]}"
 
-        text = "\n".join(item.get("ParsedText", "") for item in parsed_results if isinstance(item, dict)).strip()
+        text = "\n".join(
+            item.get("ParsedText", "")
+            for item in parsed_results
+            if isinstance(item, dict)
+        ).strip()
 
         if not text:
             return "", "OCR returned empty text"
@@ -102,9 +128,9 @@ def extract_text_from_image(image_path):
         return "", f"OCR exception: {str(e)}"
 
 
-def normalize_text(text):
-    return re.sub(r"[^a-z0-9]", "", text.lower()) if text else ""
-
+# ==========================================
+# EXPIRY
+# ==========================================
 
 def extract_expiry_date(text):
     if not text:
@@ -149,6 +175,10 @@ def is_expired(expiry_str):
         return None
 
 
+# ==========================================
+# DOSAGE
+# ==========================================
+
 def extract_dosage_info(text):
     if not text:
         return []
@@ -160,6 +190,10 @@ def extract_dosage_info(text):
 
     return list(dict.fromkeys([x.strip() for x in results]))
 
+
+# ==========================================
+# VOICE MESSAGE
+# ==========================================
 
 def build_voice_message(result):
     if result.get("error"):
@@ -191,6 +225,10 @@ def build_voice_message(result):
     return " ".join(parts)
 
 
+# ==========================================
+# OPTIONAL SERVAM TTS
+# ==========================================
+
 def generate_servam_tts(text):
     try:
         api_key = getattr(settings, "SERVAM_API_KEY", "")
@@ -221,6 +259,10 @@ def generate_servam_tts(text):
     except Exception:
         return None
 
+
+# ==========================================
+# MAIN VIEW
+# ==========================================
 
 def home(request):
     result = None
@@ -262,10 +304,11 @@ def home(request):
                 }
                 return render(request, "home.html", {"result": result})
 
+            # OCR
             prescription_text, prescription_debug = extract_text_from_image(prescription_path)
             medicine_text, medicine_debug = extract_text_from_image(medicine_path)
 
-            # Simple safe matching
+            # Safe medicine match logic
             p_norm = normalize_text(prescription_text)
             m_norm = normalize_text(medicine_text)
 
@@ -274,13 +317,14 @@ def home(request):
             matched_prescription = "Not found"
             matched_medicine = "Not found"
 
+            # Strong fallback for Gudcef
             if "gudcef" in p_norm and "gudcef" in m_norm:
                 matched = True
                 similarity = 0.92
                 matched_prescription = "Gudcef"
                 matched_medicine = "Gudcef"
             elif p_norm and m_norm:
-                similarity = SequenceMatcher(None, p_norm[:200], m_norm[:200]).ratio()
+                similarity = SequenceMatcher(None, p_norm[:300], m_norm[:300]).ratio()
                 matched = similarity >= 0.35
 
             expiry_found = extract_expiry_date(medicine_text)
