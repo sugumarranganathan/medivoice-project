@@ -24,16 +24,16 @@ def save_uploaded_file(file_obj, folder="uploads"):
         return None
 
 
-def save_base64_image(data_url, file_name="camera_capture.png", folder="uploads"):
+def save_base64_image(data_url, file_name="camera_capture.jpg", folder="uploads"):
     try:
         if not data_url or "," not in data_url:
             return None
 
         header, imgstr = data_url.split(",", 1)
-        ext = "png"
+        ext = "jpg"
 
-        if "image/jpeg" in header:
-            ext = "jpg"
+        if "image/png" in header:
+            ext = "png"
         elif "image/webp" in header:
             ext = "webp"
 
@@ -50,7 +50,44 @@ def save_base64_image(data_url, file_name="camera_capture.png", folder="uploads"
 
 
 # ==========================================
-# OCR FUNCTION WITH DEBUG
+# TEXT HELPERS
+# ==========================================
+
+def clean_text(text):
+    if not text:
+        return ""
+    text = text.replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n+", "\n", text)
+    return text.strip()
+
+
+def normalize_medicine_name(text):
+    if not text:
+        return ""
+
+    text = text.lower()
+
+    remove_words = [
+        "tablet", "tablets", "tab.", "tab",
+        "capsule", "capsules", "cap.", "cap",
+        "syrup", "syr.", "syr",
+        "injection", "inj.", "inj",
+        "strip", "ip"
+    ]
+
+    for word in remove_words:
+        text = text.replace(word, "")
+
+    text = re.sub(r"\b(\d+)\s*mg\b", r"\1", text)
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
+
+
+# ==========================================
+# OCR WITH DEBUG
 # ==========================================
 
 def extract_text_from_image(image_path):
@@ -94,17 +131,17 @@ def extract_text_from_image(image_path):
             return "", f"OCR processing error: {err}"
 
         parsed_results = data.get("ParsedResults", [])
-        if not parsed_results:
+        if not isinstance(parsed_results, list) or not parsed_results:
             return "", f"No ParsedResults. Raw: {str(data)[:300]}"
 
-        texts = []
+        extracted_parts = []
         for item in parsed_results:
             if isinstance(item, dict):
-                parsed = item.get("ParsedText", "")
-                if parsed:
-                    texts.append(parsed)
+                parsed_text = item.get("ParsedText", "")
+                if parsed_text:
+                    extracted_parts.append(parsed_text)
 
-        final_text = "\n".join(texts).strip()
+        final_text = "\n".join(extracted_parts).strip()
 
         if not final_text:
             return "", f"OCR returned empty text. Raw: {str(data)[:300]}"
@@ -115,39 +152,6 @@ def extract_text_from_image(image_path):
         return "", "OCR timeout"
     except Exception as e:
         return "", f"OCR exception: {str(e)}"
-
-
-# ==========================================
-# TEXT CLEANING
-# ==========================================
-
-def clean_text(text):
-    if not text:
-        return ""
-    text = text.replace("\r", "\n")
-    text = re.sub(r'[ \t]+', ' ', text)
-    text = re.sub(r'\n+', '\n', text)
-    return text.strip()
-
-
-def normalize_medicine_name(text):
-    if not text:
-        return ""
-
-    text = text.lower()
-    replacements = [
-        "tablet", "tablets", "tab.", "tab",
-        "capsule", "capsules", "cap.", "cap",
-        "syrup", "syr.", "syr", "injection", "inj."
-    ]
-
-    for r in replacements:
-        text = text.replace(r, "")
-
-    text = re.sub(r'\b(\d+)\s*mg\b', r'\1', text)
-    text = re.sub(r'[^a-z0-9\s]', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
 
 
 # ==========================================
@@ -169,12 +173,12 @@ def extract_prescription_medicines(text):
             continue
 
         if any(prefix in lower for prefix in ["tab ", "tab.", "tablet", "cap ", "capsule", "syr ", "syr.", "syrup"]):
-            cleaned = re.sub(r'\b(tab|tab\.|tablet|cap|cap\.|capsule|syr|syr\.|syrup)\b', '', original, flags=re.I)
-            cleaned = re.sub(r'\b\d+\s*-\s*\d+\s*-\s*\d+\b', '', cleaned, flags=re.I)
-            cleaned = re.sub(r'\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b', '', cleaned, flags=re.I)
-            cleaned = re.sub(r'\bx\s*\d+\s*days?\b', '', cleaned, flags=re.I)
-            cleaned = re.sub(r'[^A-Za-z0-9\s]', ' ', cleaned)
-            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            cleaned = re.sub(r"\b(tab|tab\.|tablet|cap|cap\.|capsule|syr|syr\.|syrup)\b", "", original, flags=re.I)
+            cleaned = re.sub(r"\b\d+\s*-\s*\d+\s*-\s*\d+\b", "", cleaned, flags=re.I)
+            cleaned = re.sub(r"\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b", "", cleaned, flags=re.I)
+            cleaned = re.sub(r"\bx\s*\d+\s*days?\b", "", cleaned, flags=re.I)
+            cleaned = re.sub(r"[^A-Za-z0-9\s]", " ", cleaned)
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
             if len(cleaned) >= 3:
                 medicines.append(cleaned)
@@ -202,16 +206,19 @@ def extract_medicine_pack_candidates(text):
         if not original:
             continue
 
-        cleaned = re.sub(r'[^A-Za-z0-9\s]', ' ', original)
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        cleaned = re.sub(r"[^A-Za-z0-9\s]", " ", original)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
         if len(cleaned) < 3:
             continue
 
-        if re.search(r'\b\d+\s*mg\b', original, re.I):
+        if re.search(r"\b\d+\s*mg\b", original, re.I):
             candidates.append(cleaned)
 
-        if any(word in original.lower() for word in ["tablet", "tablets", "ip", "exp", "mfg", "batch", "gudcef"]):
+        if any(word in original.lower() for word in [
+            "tablet", "tablets", "ip", "exp", "expiry", "mfg", "batch",
+            "gudcef", "cef", "mg"
+        ]):
             candidates.append(cleaned)
 
         words = cleaned.split()
@@ -281,10 +288,10 @@ def extract_expiry_date(text):
         return None
 
     patterns = [
-        r'EXP[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})',
-        r'EXPIRY[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})',
-        r'\b([0-1]?\d[/\-][0-9]{4})\b',
-        r'\b([0-1]?\d[/\-][0-9]{2})\b',
+        r"EXP[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})",
+        r"EXPIRY[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})",
+        r"\b([0-1]?\d[/\-][0-9]{4})\b",
+        r"\b([0-1]?\d[/\-][0-9]{2})\b",
     ]
 
     for pattern in patterns:
@@ -333,12 +340,13 @@ def extract_dosage_info(text):
         return []
 
     results = []
-    results += re.findall(r'\b\d+\s*-\s*\d+\s*-\s*\d+\b', text)
-    results += re.findall(r'\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b', text, re.I)
-    results += re.findall(r'\bx\s*\d+\s*days?\b', text, re.I)
+    results += re.findall(r"\b\d+\s*-\s*\d+\s*-\s*\d+\b", text)
+    results += re.findall(r"\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b", text, re.I)
+    results += re.findall(r"\bx\s*\d+\s*days?\b", text, re.I)
 
     unique = []
     seen = set()
+
     for item in results:
         cleaned = item.replace(" ", "")
         key = cleaned.lower()
@@ -469,18 +477,22 @@ def home(request):
                 }
                 return render(request, "home.html", {"result": result})
 
+            # OCR
             prescription_text, prescription_debug = extract_text_from_image(prescription_path)
             medicine_text, medicine_debug = extract_text_from_image(medicine_path)
 
+            # Candidate extraction
             prescription_candidates = extract_prescription_medicines(prescription_text)
             medicine_candidates = extract_medicine_pack_candidates(medicine_text)
 
+            # Best match
             matched_prescription, matched_medicine, similarity = best_match(
                 prescription_candidates, medicine_candidates
             )
 
             matched = similarity >= 0.72
 
+            # Brand-force fallback for Gudcef
             p_norm = normalize_medicine_name(prescription_text)
             m_norm = normalize_medicine_name(medicine_text)
 
@@ -490,6 +502,7 @@ def home(request):
                 matched_medicine = "Gudcef 200"
                 similarity = max(similarity, 0.92)
 
+            # Expiry + dosage
             expiry_found = extract_expiry_date(medicine_text)
             expired = is_expired(expiry_found)
             dosage = extract_dosage_info(prescription_text)
@@ -521,6 +534,8 @@ def home(request):
                 "medicine_text": "No text extracted",
                 "prescription_debug": f"Main exception: {str(e)}",
                 "medicine_debug": "Not reached",
+                "prescription_candidates": [],
+                "medicine_candidates": [],
                 "matched_prescription": "Not found",
                 "matched_medicine": "Not found",
                 "similarity": 0,
