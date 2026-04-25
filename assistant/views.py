@@ -1,16 +1,10 @@
 import os
 import re
-import json
 import base64
 import requests
 from difflib import SequenceMatcher
 from datetime import datetime
 from io import BytesIO
-
-import cv2
-import numpy as np
-import pytesseract
-from PIL import Image
 
 from django.conf import settings
 from django.shortcuts import render
@@ -18,59 +12,10 @@ from django.core.files.storage import default_storage
 
 
 # =========================
-# OCR HELPERS
-# =========================
-
-def preprocess_image_for_ocr(image_path):
-    """
-    Reads image using OpenCV and applies basic preprocessing for OCR.
-    Returns preprocessed image array or None.
-    """
-    try:
-        img = cv2.imread(image_path)
-        if img is None:
-            return None
-
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (3, 3), 0)
-
-        # Adaptive threshold for better OCR
-        processed = cv2.adaptiveThreshold(
-            gray, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            31, 11
-        )
-        return processed
-    except Exception:
-        return None
-
-
-def extract_text_from_image(image_path):
-    """
-    Extract text using pytesseract from image file.
-    NOTE: This may fail on Render if system Tesseract is unavailable.
-    """
-    try:
-        processed = preprocess_image_for_ocr(image_path)
-        if processed is None:
-            return ""
-
-        custom_config = r'--oem 3 --psm 6'
-        text = pytesseract.image_to_string(processed, config=custom_config)
-        return text.strip()
-    except Exception:
-        return ""
-
-
-# =========================
 # IMAGE SAVE HELPERS
 # =========================
 
 def save_uploaded_file(file_obj, folder="uploads"):
-    """
-    Save uploaded file to media folder and return full path.
-    """
     try:
         file_name = default_storage.save(f"{folder}/{file_obj.name}", file_obj)
         return os.path.join(settings.MEDIA_ROOT, file_name)
@@ -79,9 +24,6 @@ def save_uploaded_file(file_obj, folder="uploads"):
 
 
 def save_base64_image(data_url, file_name="camera_capture.png", folder="uploads"):
-    """
-    Save base64 image (from camera capture) to media folder.
-    """
     try:
         if not data_url or "," not in data_url:
             return None
@@ -106,6 +48,54 @@ def save_base64_image(data_url, file_name="camera_capture.png", folder="uploads"
 
 
 # =========================
+# OCR.SPACE API HELPERS
+# =========================
+
+def extract_text_from_image(image_path):
+    api_key = os.environ.get("OCR_SPACE_API_KEY", "")
+
+    if not api_key:
+        return ""
+
+    try:
+        with open(image_path, "rb") as f:
+            response = requests.post(
+                "https://api.ocr.space/parse/image",
+                files={"filename": f},
+                data={
+                    "apikey": api_key,
+                    "language": "eng",
+                    "isOverlayRequired": False,
+                    "OCREngine": 2,
+                    "scale": True,
+                    "detectOrientation": True,
+                },
+                timeout=60
+            )
+
+        if response.status_code != 200:
+            return ""
+
+        data = response.json()
+
+        if data.get("IsErroredOnProcessing"):
+            return ""
+
+        parsed_results = data.get("ParsedResults", [])
+        if not parsed_results:
+            return ""
+
+        extracted_text = " ".join(
+            result.get("ParsedText", "") for result in parsed_results
+        ).strip()
+
+        return extracted_text
+
+    except Exception:
+        return ""
+
+
+# =========================
 # TEXT EXTRACTION HELPERS
 # =========================
 
@@ -117,32 +107,29 @@ def clean_text(text):
 
 
 def extract_medicine_candidates(text):
-    """
-    Very simple medicine name extraction.
-    Tries to find uppercase-ish or alpha-numeric words from OCR text.
-    """
     if not text:
         return []
 
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    parts = re.split(r'[\n,;:]+', text)
     candidates = []
 
-    for line in lines:
-        # remove extra symbols
-        cleaned = re.sub(r'[^A-Za-z0-9\s\-\+]', ' ', line)
+    for part in parts:
+        cleaned = re.sub(r'[^A-Za-z0-9\s\-\+]', ' ', part)
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
 
-        # skip short lines
         if len(cleaned) < 3:
             continue
 
-        # avoid obvious noise
-        if cleaned.lower() in ['mg', 'ml', 'tablet', 'capsule']:
+        noise_words = {
+            "tablet", "tablets", "capsule", "capsules", "syrup",
+            "ml", "mg", "g", "dosage", "expiry", "exp", "manufactured"
+        }
+
+        if cleaned.lower() in noise_words:
             continue
 
         candidates.append(cleaned)
 
-    # unique while preserving order
     unique = []
     seen = set()
     for c in candidates:
@@ -155,9 +142,6 @@ def extract_medicine_candidates(text):
 
 
 def best_match(prescription_candidates, medicine_candidates):
-    """
-    Find best medicine name match using SequenceMatcher.
-    """
     best_ratio = 0
     best_prescription = ""
     best_medicine = ""
@@ -174,10 +158,6 @@ def best_match(prescription_candidates, medicine_candidates):
 
 
 def extract_expiry_date(text):
-    """
-    Tries to detect expiry formats like:
-    EXP 12/26, 12/2026, 2026-12, etc.
-    """
     if not text:
         return None
 
@@ -196,10 +176,6 @@ def extract_expiry_date(text):
 
 
 def is_expired(expiry_str):
-    """
-    Checks if expiry is past current month.
-    Supports MM/YY or MM/YYYY
-    """
     if not expiry_str:
         return None
 
@@ -216,22 +192,19 @@ def is_expired(expiry_str):
         if year < 100:
             year += 2000
 
-        # Compare end of expiry month
         now = datetime.now()
+
         if year < now.year:
             return True
         if year == now.year and month < now.month:
             return True
+
         return False
     except Exception:
         return None
 
 
 def extract_dosage_info(text):
-    """
-    Simple dosage extraction examples:
-    1-0-1, 0-1-0, once daily, twice daily, SOS, etc.
-    """
     if not text:
         return []
 
@@ -250,7 +223,6 @@ def extract_dosage_info(text):
         matches = re.findall(pattern, text, re.IGNORECASE)
         found.extend(matches)
 
-    # unique preserve order
     unique = []
     seen = set()
     for item in found:
@@ -263,57 +235,10 @@ def extract_dosage_info(text):
 
 
 # =========================
-# RESULT / VOICE HELPERS
+# SERVAM TTS
 # =========================
 
-def build_voice_message(result):
-    """
-    Build simple voice summary text.
-    """
-    if result.get("error"):
-        return "Unable to analyze the medicine safely. Please try again with clearer images."
-
-    parts = []
-
-    if result.get("matched"):
-        parts.append("Prescription and medicine appear to match.")
-    else:
-        parts.append("Warning. Prescription and medicine may not match.")
-
-    if result.get("expiry_found"):
-        if result.get("expired") is True:
-            parts.append("The medicine appears expired. Do not use it.")
-        elif result.get("expired") is False:
-            parts.append("The medicine does not appear expired.")
-        else:
-            parts.append("Expiry date was found, but could not be fully verified.")
-    else:
-        parts.append("Expiry date could not be detected clearly.")
-
-    if result.get("dosage"):
-        parts.append(f"Dosage instructions found: {', '.join(result['dosage'])}.")
-    else:
-        parts.append("No clear dosage instructions were found.")
-
-    parts.append("Please confirm with a doctor or pharmacist before consuming.")
-
-    return " ".join(parts)
-
-
 def generate_servam_tts(text):
-    """
-    Sends text to Servam TTS API.
-    IMPORTANT:
-    You MUST set correct SERVAM_API_URL in Render env variables.
-    Example expected response:
-    {
-      "audio_url": "https://....mp3"
-    }
-    OR
-    {
-      "url": "https://....mp3"
-    }
-    """
     api_key = settings.SERVAM_API_KEY
     api_url = settings.SERVAM_API_URL
 
@@ -350,6 +275,41 @@ def generate_servam_tts(text):
 
 
 # =========================
+# RESULT / VOICE HELPERS
+# =========================
+
+def build_voice_message(result):
+    if result.get("error"):
+        return "Unable to analyze the medicine safely. Please try again with clearer images."
+
+    parts = []
+
+    if result.get("matched"):
+        parts.append("Prescription and medicine appear to match.")
+    else:
+        parts.append("Warning. Prescription and medicine may not match.")
+
+    if result.get("expiry_found"):
+        if result.get("expired") is True:
+            parts.append("The medicine appears expired. Do not use it.")
+        elif result.get("expired") is False:
+            parts.append("The medicine does not appear expired.")
+        else:
+            parts.append("Expiry date was found, but could not be fully verified.")
+    else:
+        parts.append("Expiry date could not be detected clearly.")
+
+    if result.get("dosage"):
+        parts.append(f"Dosage instructions found: {', '.join(result['dosage'])}.")
+    else:
+        parts.append("No clear dosage instructions were found.")
+
+    parts.append("Please confirm with a doctor or pharmacist before consuming.")
+
+    return " ".join(parts)
+
+
+# =========================
 # MAIN VIEW
 # =========================
 
@@ -361,7 +321,6 @@ def home(request):
             prescription_path = None
             medicine_path = None
 
-            # 1) Uploaded files
             prescription_file = request.FILES.get("prescription_image")
             medicine_file = request.FILES.get("medicine_image")
 
@@ -371,7 +330,6 @@ def home(request):
             if medicine_file:
                 medicine_path = save_uploaded_file(medicine_file, folder="medicines")
 
-            # 2) Camera captures (base64)
             prescription_camera = request.POST.get("prescription_camera_data")
             medicine_camera = request.POST.get("medicine_camera_data")
 
@@ -395,14 +353,12 @@ def home(request):
                 }
                 return render(request, "home.html", {"result": result})
 
-            # OCR
             prescription_text = extract_text_from_image(prescription_path)
             medicine_text = extract_text_from_image(medicine_path)
 
             prescription_text = clean_text(prescription_text)
             medicine_text = clean_text(medicine_text)
 
-            # Candidates
             prescription_candidates = extract_medicine_candidates(prescription_text)
             medicine_candidates = extract_medicine_candidates(medicine_text)
 
@@ -412,21 +368,19 @@ def home(request):
 
             matched = similarity >= 0.60
 
-            # Expiry
             expiry_found = extract_expiry_date(medicine_text)
             expired = is_expired(expiry_found)
 
-            # Dosage
             dosage = extract_dosage_info(prescription_text)
 
             result = {
                 "error": None,
-                "prescription_text": prescription_text,
-                "medicine_text": medicine_text,
+                "prescription_text": prescription_text if prescription_text else "No text extracted",
+                "medicine_text": medicine_text if medicine_text else "No text extracted",
                 "prescription_candidates": prescription_candidates,
                 "medicine_candidates": medicine_candidates,
-                "matched_prescription": matched_prescription,
-                "matched_medicine": matched_medicine,
+                "matched_prescription": matched_prescription if matched_prescription else "Not found",
+                "matched_medicine": matched_medicine if matched_medicine else "Not found",
                 "similarity": round(similarity * 100, 2),
                 "matched": matched,
                 "expiry_found": expiry_found,
