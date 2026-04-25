@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # ==========================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load local .env file (for local development)
+# Load local .env for local development only
 load_dotenv(BASE_DIR / ".env")
 
 
@@ -20,13 +20,19 @@ SECRET_KEY = os.getenv(
     "django-insecure-change-this-in-render-production"
 )
 
-DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+DEBUG = os.getenv("DEBUG", "False").strip().lower() == "true"
 
+# Safe default hosts
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
     ".onrender.com",
 ]
+
+# Optional custom hosts from environment
+extra_hosts = os.getenv("ALLOWED_HOSTS", "").strip()
+if extra_hosts:
+    ALLOWED_HOSTS += [host.strip() for host in extra_hosts.split(",") if host.strip()]
 
 
 # ==========================================
@@ -85,7 +91,7 @@ WSGI_APPLICATION = "medivoice.wsgi.application"
 # ==========================================
 # DATABASE
 # ==========================================
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 if DATABASE_URL:
     DATABASES = {
@@ -138,7 +144,7 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# Keep empty to avoid Render error if /static folder does not exist
+# Keep empty if you do not have a local static/ folder
 STATICFILES_DIRS = []
 
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
@@ -182,14 +188,14 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB
 # ==========================================
 # EXTERNAL API KEYS
 # ==========================================
-OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "")
+OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "").strip()
 
-SERVAM_API_KEY = os.getenv("SERVAM_API_KEY", "")
-SERVAM_API_URL = os.getenv("SERVAM_API_URL", "")
+SERVAM_API_KEY = os.getenv("SERVAM_API_KEY", "").strip()
+SERVAM_API_URL = os.getenv("SERVAM_API_URL", "").strip()
 
 
 # ==========================================
-# LOGGING
+# LOGGING (helps Render logs)
 # ==========================================
 LOGGING = {
     "version": 1,
