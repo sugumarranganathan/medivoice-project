@@ -96,22 +96,20 @@ def preprocess_variants(image_path):
     except Exception:
         return [img]
 
-    # Slight denoise
     gray_blur = cv2.GaussianBlur(gray, (3, 3), 0)
 
-    # OTSU
     _, otsu = cv2.threshold(gray_blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    # Adaptive
     adaptive = cv2.adaptiveThreshold(
         gray_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY, 31, 11
     )
 
-    # Sharpen
-    kernel = np.array([[0, -1, 0],
-                       [-1, 5, -1],
-                       [0, -1, 0]])
+    kernel = np.array([
+        [0, -1, 0],
+        [-1, 5, -1],
+        [0, -1, 0]
+    ])
     sharpened = cv2.filter2D(gray, -1, kernel)
 
     variants = [img, gray, otsu, adaptive, sharpened]
@@ -180,13 +178,13 @@ def ocr_space_from_filelike(filelike):
 
 def extract_text_from_image(image_path):
     """
-    Try OCR on multiple preprocessed versions and return the best combined text.
+    Try OCR on multiple preprocessed versions and return best combined text.
     """
     variants = preprocess_variants(image_path)
 
     all_texts = []
 
-    # First: try original file directly
+    # Try original file directly first
     try:
         with open(image_path, "rb") as f:
             direct_text = ocr_space_from_filelike(BytesIO(f.read()))
@@ -195,7 +193,7 @@ def extract_text_from_image(image_path):
     except Exception:
         pass
 
-    # Then: try variants
+    # Try processed variants
     for variant in variants:
         try:
             filelike = image_to_temp_bytes(variant)
@@ -211,7 +209,6 @@ def extract_text_from_image(image_path):
     if not all_texts:
         return ""
 
-    # Combine unique useful lines
     lines = []
     seen = set()
 
@@ -236,7 +233,6 @@ def clean_text(text):
     if not text:
         return ""
 
-    # Keep line structure for dosage extraction
     text = text.replace("\r", "\n")
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n+', '\n', text)
@@ -262,7 +258,7 @@ def normalize_medicine_name(text):
     text = re.sub(r'[^a-z0-9\s]', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
-    # Normalize mg spacing: "200mg" -> "200"
+    # Normalize 200mg -> 200
     text = re.sub(r'\b(\d+)\s*mg\b', r'\1', text)
 
     return text.strip()
@@ -292,11 +288,10 @@ def extract_prescription_medicines(text):
         if not original_line:
             continue
 
-        # Focus on lines that look like medicine lines
         if any(prefix in line_lower for prefix in ["tab ", "tab.", "tablet", "cap ", "capsule", "syr ", "syr.", "syrup"]):
             cleaned = re.sub(r'\b(tab|tab\.|tablet|cap|cap\.|capsule|syr|syr\.|syrup)\b', '', original_line, flags=re.I)
 
-            # Remove dosage patterns like 1-0-1, 0-0-1, 7ml-0-7ml
+            # Remove dosage patterns
             cleaned = re.sub(r'\b\d+\s*-\s*\d+\s*-\s*\d+\b', '', cleaned, flags=re.I)
             cleaned = re.sub(r'\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b', '', cleaned, flags=re.I)
             cleaned = re.sub(r'\b\d+\s*ml\b', '', cleaned, flags=re.I)
@@ -308,9 +303,8 @@ def extract_prescription_medicines(text):
             if len(cleaned) >= 3:
                 medicines.append(cleaned)
 
-    # Fallback if nothing found
+    # Fallback
     if not medicines:
-        lines = text.splitlines()
         for line in lines:
             line = line.strip()
             if not line:
@@ -322,7 +316,6 @@ def extract_prescription_medicines(text):
                 if len(cleaned) >= 3:
                     medicines.append(cleaned)
 
-    # Unique
     unique = []
     seen = set()
     for med in medicines:
@@ -342,7 +335,6 @@ def extract_medicine_pack_candidates(text):
         return []
 
     candidates = []
-
     lines = text.splitlines()
 
     for line in lines:
@@ -350,14 +342,12 @@ def extract_medicine_pack_candidates(text):
         if not original:
             continue
 
-        # Clean
         cleaned = re.sub(r'[^A-Za-z0-9\s]', ' ', original)
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
 
         if len(cleaned) < 3:
             continue
 
-        # Strong signals
         if re.search(r'\b\d+\s*mg\b', original, re.I):
             candidates.append(cleaned)
 
@@ -366,12 +356,10 @@ def extract_medicine_pack_candidates(text):
         ]):
             candidates.append(cleaned)
 
-        # Brand-like words
         words = cleaned.split()
         if len(words) >= 1 and len(words[0]) >= 4:
             candidates.append(cleaned)
 
-    # Unique
     unique = []
     seen = set()
     for c in candidates:
@@ -394,7 +382,7 @@ def similarity_score(a, b):
     if not a_norm or not b_norm:
         return 0.0
 
-    # Exact contains boost
+    # Strong contains boost
     if a_norm in b_norm or b_norm in a_norm:
         base = 0.92
     else:
@@ -516,7 +504,6 @@ def extract_dosage_info(text):
         if match3:
             results.append(match3.group(0))
 
-    # Fallback keywords
     keyword_patterns = [
         r'\bonce daily\b',
         r'\btwice daily\b',
@@ -530,7 +517,6 @@ def extract_dosage_info(text):
         matches = re.findall(pattern, text, re.IGNORECASE)
         results.extend(matches)
 
-    # Unique
     unique = []
     seen = set()
     for item in results:
@@ -634,7 +620,7 @@ def home(request):
             if medicine_file:
                 medicine_path = save_uploaded_file(medicine_file, folder="medicines")
 
-            # Camera base64 (fallback if file not uploaded)
+            # Camera base64 fallback
             prescription_camera = request.POST.get("prescription_camera_data")
             medicine_camera = request.POST.get("medicine_camera_data")
 
@@ -662,11 +648,11 @@ def home(request):
             prescription_text = clean_text(extract_text_from_image(prescription_path))
             medicine_text = clean_text(extract_text_from_image(medicine_path))
 
-            # Extract candidates
+            # Extract medicine candidates
             prescription_candidates = extract_prescription_medicines(prescription_text)
             medicine_candidates = extract_medicine_pack_candidates(medicine_text)
 
-            # Matching
+            # Match
             matched_prescription, matched_medicine, similarity = best_match(
                 prescription_candidates, medicine_candidates
             )
@@ -680,7 +666,6 @@ def home(request):
             # Dosage
             dosage = extract_dosage_info(prescription_text)
 
-            # Result
             result = {
                 "error": None,
                 "prescription_text": prescription_text if prescription_text else "No text extracted",
@@ -696,10 +681,12 @@ def home(request):
                 "dosage": dosage,
             }
 
-            # Better fallback if OCR got partial data
+            # Brand fallback for partial OCR like Gudcef
             if not result["matched"] and prescription_text and medicine_text:
-                # Direct special fallback for brand detection like Gudcef 200
-                if "gudcef" in normalize_medicine_name(prescription_text) and "gudcef" in normalize_medicine_name(medicine_text):
+                p_norm = normalize_medicine_name(prescription_text)
+                m_norm = normalize_medicine_name(medicine_text)
+
+                if "gudcef" in p_norm and "gudcef" in m_norm:
                     result["matched"] = True
                     result["matched_prescription"] = "Gudcef 200mg"
                     result["matched_medicine"] = "Gudcef 200"
