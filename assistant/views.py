@@ -48,22 +48,18 @@ def save_base64_image(data_url, file_name="camera_capture.png", folder="uploads"
 
 
 # ==========================================
-# OCR HELPERS (CRASH SAFE)
+# OCR WITH DEBUG
 # ==========================================
 
 def extract_text_from_image(image_path):
-    """
-    OCR using OCR.Space API (Render-safe).
-    Fully crash-safe.
-    """
     try:
         api_key = os.environ.get("OCR_SPACE_API_KEY", "").strip()
 
         if not api_key:
-            return ""
+            return "", "OCR_SPACE_API_KEY missing"
 
         if not image_path or not os.path.exists(image_path):
-            return ""
+            return "", f"Image not found: {image_path}"
 
         with open(image_path, "rb") as f:
             response = requests.post(
@@ -81,22 +77,23 @@ def extract_text_from_image(image_path):
             )
 
         if response.status_code != 200:
-            return ""
+            return "", f"OCR HTTP error: {response.status_code}"
 
         try:
             data = response.json()
         except Exception:
-            return ""
+            return "", f"OCR invalid JSON: {response.text[:300]}"
 
         if not isinstance(data, dict):
-            return ""
+            return "", "OCR response not dict"
 
         if data.get("IsErroredOnProcessing"):
-            return ""
+            err = data.get("ErrorMessage", "Unknown OCR error")
+            return "", f"OCR processing error: {err}"
 
         parsed_results = data.get("ParsedResults", [])
         if not isinstance(parsed_results, list) or not parsed_results:
-            return ""
+            return "", f"No ParsedResults. Raw: {str(data)[:300]}"
 
         extracted_parts = []
         for item in parsed_results:
@@ -106,10 +103,14 @@ def extract_text_from_image(image_path):
                     extracted_parts.append(txt)
 
         extracted_text = "\n".join(extracted_parts).strip()
-        return clean_text(extracted_text)
 
-    except Exception:
-        return ""
+        if not extracted_text:
+            return "", f"OCR returned empty text. Raw: {str(data)[:300]}"
+
+        return clean_text(extracted_text), "OCR success"
+
+    except Exception as e:
+        return "", f"OCR exception: {str(e)}"
 
 
 # ==========================================
@@ -331,13 +332,8 @@ def extract_dosage_info(text):
 
     results = []
 
-    # 1-0-1
     results += re.findall(r'\b\d+\s*-\s*\d+\s*-\s*\d+\b', text)
-
-    # 7ml-0-7ml
     results += re.findall(r'\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b', text, re.I)
-
-    # x 5 days
     results += re.findall(r'\bx\s*\d+\s*days?\b', text, re.I)
 
     unique = []
@@ -353,7 +349,7 @@ def extract_dosage_info(text):
 
 
 # ==========================================
-# SERVAM TTS (CRASH SAFE)
+# SERVAM TTS
 # ==========================================
 
 def generate_servam_tts(text):
@@ -440,7 +436,6 @@ def home(request):
             prescription_path = None
             medicine_path = None
 
-            # Uploaded files
             prescription_file = request.FILES.get("prescription_image")
             medicine_file = request.FILES.get("medicine_image")
 
@@ -450,7 +445,6 @@ def home(request):
             if medicine_file:
                 medicine_path = save_uploaded_file(medicine_file, folder="medicines")
 
-            # Camera images
             prescription_camera = request.POST.get("prescription_camera_data")
             medicine_camera = request.POST.get("medicine_camera_data")
 
@@ -475,8 +469,8 @@ def home(request):
                 return render(request, "home.html", {"result": result})
 
             # OCR
-            prescription_text = extract_text_from_image(prescription_path)
-            medicine_text = extract_text_from_image(medicine_path)
+            prescription_text, prescription_debug = extract_text_from_image(prescription_path)
+            medicine_text, medicine_debug = extract_text_from_image(medicine_path)
 
             # Extract
             prescription_candidates = extract_prescription_medicines(prescription_text)
@@ -488,7 +482,6 @@ def home(request):
 
             matched = similarity >= 0.72
 
-            # Gudcef fallback
             p_norm = normalize_medicine_name(prescription_text)
             m_norm = normalize_medicine_name(medicine_text)
 
@@ -507,6 +500,8 @@ def home(request):
                 "error": None,
                 "prescription_text": prescription_text if prescription_text else "No text extracted",
                 "medicine_text": medicine_text if medicine_text else "No text extracted",
+                "prescription_debug": prescription_debug,
+                "medicine_debug": medicine_debug,
                 "prescription_candidates": prescription_candidates,
                 "medicine_candidates": medicine_candidates,
                 "matched_prescription": matched_prescription if matched_prescription else "Not found",
@@ -526,6 +521,8 @@ def home(request):
                 "error": f"An error occurred: {str(e)}",
                 "prescription_text": "No text extracted",
                 "medicine_text": "No text extracted",
+                "prescription_debug": f"Main exception: {str(e)}",
+                "medicine_debug": "Not reached",
                 "matched_prescription": "Not found",
                 "matched_medicine": "Not found",
                 "similarity": 0,
