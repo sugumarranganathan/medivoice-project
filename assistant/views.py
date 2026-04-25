@@ -19,7 +19,8 @@ def save_uploaded_file(file_obj, folder="uploads"):
     try:
         file_name = default_storage.save(f"{folder}/{file_obj.name}", file_obj)
         return os.path.join(settings.MEDIA_ROOT, file_name)
-    except Exception:
+    except Exception as e:
+        print("File save error:", e)
         return None
 
 
@@ -43,12 +44,13 @@ def save_base64_image(data_url, file_name="camera_capture.png", folder="uploads"
         saved_path = default_storage.save(relative_path, BytesIO(binary_data))
 
         return os.path.join(settings.MEDIA_ROOT, saved_path)
-    except Exception:
+    except Exception as e:
+        print("Base64 save error:", e)
         return None
 
 
 # ==========================================
-# OCR WITH DEBUG
+# OCR FUNCTION WITH DEBUG
 # ==========================================
 
 def extract_text_from_image(image_path):
@@ -85,36 +87,38 @@ def extract_text_from_image(image_path):
             return "", f"OCR invalid JSON: {response.text[:300]}"
 
         if not isinstance(data, dict):
-            return "", "OCR response not dict"
+            return "", "OCR response format invalid"
 
         if data.get("IsErroredOnProcessing"):
-            err = data.get("ErrorMessage", "Unknown OCR error")
+            err = data.get("ErrorMessage", "Unknown OCR processing error")
             return "", f"OCR processing error: {err}"
 
         parsed_results = data.get("ParsedResults", [])
-        if not isinstance(parsed_results, list) or not parsed_results:
+        if not parsed_results:
             return "", f"No ParsedResults. Raw: {str(data)[:300]}"
 
-        extracted_parts = []
+        texts = []
         for item in parsed_results:
             if isinstance(item, dict):
-                txt = item.get("ParsedText", "")
-                if txt:
-                    extracted_parts.append(txt)
+                parsed = item.get("ParsedText", "")
+                if parsed:
+                    texts.append(parsed)
 
-        extracted_text = "\n".join(extracted_parts).strip()
+        final_text = "\n".join(texts).strip()
 
-        if not extracted_text:
+        if not final_text:
             return "", f"OCR returned empty text. Raw: {str(data)[:300]}"
 
-        return clean_text(extracted_text), "OCR success"
+        return clean_text(final_text), "OCR success"
 
+    except requests.exceptions.Timeout:
+        return "", "OCR timeout"
     except Exception as e:
         return "", f"OCR exception: {str(e)}"
 
 
 # ==========================================
-# TEXT HELPERS
+# TEXT CLEANING
 # ==========================================
 
 def clean_text(text):
@@ -131,21 +135,18 @@ def normalize_medicine_name(text):
         return ""
 
     text = text.lower()
-    text = text.replace("tablet", "")
-    text = text.replace("tablets", "")
-    text = text.replace("tab.", "")
-    text = text.replace("tab", "")
-    text = text.replace("capsule", "")
-    text = text.replace("capsules", "")
-    text = text.replace("cap.", "")
-    text = text.replace("cap", "")
-    text = text.replace("syrup", "")
-    text = text.replace("syr.", "")
-    text = text.replace("syr", "")
+    replacements = [
+        "tablet", "tablets", "tab.", "tab",
+        "capsule", "capsules", "cap.", "cap",
+        "syrup", "syr.", "syr", "injection", "inj."
+    ]
+
+    for r in replacements:
+        text = text.replace(r, "")
+
     text = re.sub(r'\b(\d+)\s*mg\b', r'\1', text)
     text = re.sub(r'[^a-z0-9\s]', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
-
     return text
 
 
@@ -210,7 +211,7 @@ def extract_medicine_pack_candidates(text):
         if re.search(r'\b\d+\s*mg\b', original, re.I):
             candidates.append(cleaned)
 
-        if any(word in original.lower() for word in ["tablet", "tablets", "ip", "cefpodoxime", "exp", "gudcef"]):
+        if any(word in original.lower() for word in ["tablet", "tablets", "ip", "exp", "mfg", "batch", "gudcef"]):
             candidates.append(cleaned)
 
         words = cleaned.split()
@@ -249,7 +250,8 @@ def similarity_score(a, b):
 
     if a_tokens and b_tokens:
         overlap = len(a_tokens & b_tokens) / max(len(a_tokens), len(b_tokens))
-        return min(max(base, (base * 0.7 + overlap * 0.3)), 1.0)
+        score = max(base, (base * 0.7 + overlap * 0.3))
+        return min(score, 1.0)
 
     return min(base, 1.0)
 
@@ -331,7 +333,6 @@ def extract_dosage_info(text):
         return []
 
     results = []
-
     results += re.findall(r'\b\d+\s*-\s*\d+\s*-\s*\d+\b', text)
     results += re.findall(r'\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b', text, re.I)
     results += re.findall(r'\bx\s*\d+\s*days?\b', text, re.I)
@@ -451,14 +452,14 @@ def home(request):
             if not prescription_path and prescription_camera:
                 prescription_path = save_base64_image(
                     prescription_camera,
-                    file_name="prescription_capture.png",
+                    file_name="prescription_capture.jpg",
                     folder="prescriptions"
                 )
 
             if not medicine_path and medicine_camera:
                 medicine_path = save_base64_image(
                     medicine_camera,
-                    file_name="medicine_capture.png",
+                    file_name="medicine_capture.jpg",
                     folder="medicines"
                 )
 
@@ -468,11 +469,9 @@ def home(request):
                 }
                 return render(request, "home.html", {"result": result})
 
-            # OCR
             prescription_text, prescription_debug = extract_text_from_image(prescription_path)
             medicine_text, medicine_debug = extract_text_from_image(medicine_path)
 
-            # Extract
             prescription_candidates = extract_prescription_medicines(prescription_text)
             medicine_candidates = extract_medicine_pack_candidates(medicine_text)
 
@@ -493,7 +492,6 @@ def home(request):
 
             expiry_found = extract_expiry_date(medicine_text)
             expired = is_expired(expiry_found)
-
             dosage = extract_dosage_info(prescription_text)
 
             result = {
