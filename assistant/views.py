@@ -55,10 +55,6 @@ def save_base64_image(data_url, file_name="camera_capture.jpg", folder="uploads"
 # ==========================================
 
 def prepare_image_for_ocr(image_path, max_size_bytes=1400000):
-    """
-    OCR.Space free plan max is 1.5 MB.
-    We compress to ~1.4 MB for safety.
-    """
     try:
         if not image_path or not os.path.exists(image_path):
             return image_path, "Image file not found"
@@ -70,19 +66,14 @@ def prepare_image_for_ocr(image_path, max_size_bytes=1400000):
 
         img = Image.open(image_path)
 
-        # Convert RGBA/PNG/WebP safely to RGB JPEG
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
         elif img.mode != "RGB":
             img = img.convert("RGB")
 
-        # Start with original dimensions
         width, height = img.size
-
-        # New compressed path
         compressed_path = os.path.splitext(image_path)[0] + "_ocr.jpg"
 
-        # Try multiple compression steps
         for scale in [1.0, 0.9, 0.8, 0.7, 0.6]:
             new_w = max(800, int(width * scale))
             new_h = max(800, int(height * scale))
@@ -102,7 +93,6 @@ def prepare_image_for_ocr(image_path, max_size_bytes=1400000):
                     if new_size <= max_size_bytes:
                         return compressed_path, f"Compressed from {original_size} to {new_size} bytes"
 
-        # If still too big, return best attempt
         if os.path.exists(compressed_path):
             new_size = os.path.getsize(compressed_path)
             return compressed_path, f"Compressed best effort: {original_size} -> {new_size} bytes"
@@ -130,8 +120,12 @@ def normalize_text(text):
     return re.sub(r"[^a-z0-9]", "", text.lower()) if text else ""
 
 
+def normalize_word(word):
+    return re.sub(r"[^a-z0-9]", "", word.lower()) if word else ""
+
+
 # ==========================================
-# OCR (WITH AUTO COMPRESSION)
+# OCR
 # ==========================================
 
 def extract_text_from_image(image_path):
@@ -144,7 +138,6 @@ def extract_text_from_image(image_path):
         if not image_path or not os.path.exists(image_path):
             return "", "Image file not found"
 
-        # Compress/resize before OCR
         prepared_path, prep_debug = prepare_image_for_ocr(image_path)
 
         with open(prepared_path, "rb") as f:
@@ -163,10 +156,7 @@ def extract_text_from_image(image_path):
             )
 
         if response.status_code != 200:
-            try:
-                return "", f"{prep_debug} | OCR HTTP error: {response.status_code} | {response.text[:300]}"
-            except Exception:
-                return "", f"{prep_debug} | OCR HTTP error: {response.status_code}"
+            return "", f"{prep_debug} | OCR HTTP error: {response.status_code} | {response.text[:300]}"
 
         try:
             data = response.json()
@@ -178,7 +168,7 @@ def extract_text_from_image(image_path):
 
         parsed_results = data.get("ParsedResults", [])
         if not parsed_results:
-            return "", f"{prep_debug} | No ParsedResults from OCR. Raw: {str(data)[:300]}"
+            return "", f"{prep_debug} | No ParsedResults from OCR"
 
         text = "\n".join(
             item.get("ParsedText", "")
@@ -193,6 +183,141 @@ def extract_text_from_image(image_path):
 
     except Exception as e:
         return "", f"OCR exception: {str(e)}"
+
+
+# ==========================================
+# MEDICINE MATCHING (SMART)
+# ==========================================
+
+def extract_prescription_medicine_candidates(text):
+    if not text:
+        return []
+
+    candidates = []
+
+    lines = text.splitlines()
+    for line in lines:
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+
+        # likely medicine lines
+        if re.search(r'\b(tab|cap|syr|tablet|capsule|inj|drop)\b', line_clean, re.I):
+            words = re.findall(r'[A-Za-z0-9]+', line_clean)
+            filtered = []
+            skip_words = {
+                'tab', 'tablet', 'tablets', 'cap', 'capsule', 'capsules',
+                'syr', 'syrup', 'inj', 'injection', 'drop', 'drops',
+                'mg', 'ml', 'days', 'day'
+            }
+
+            for w in words:
+                nw = normalize_word(w)
+                if len(nw) >= 4 and nw not in skip_words and not nw.isdigit():
+                    filtered.append(w)
+
+            if filtered:
+                candidates.extend(filtered)
+
+    # fallback: all possible words
+    if not candidates:
+        words = re.findall(r'[A-Za-z]{4,}', text)
+        candidates = words
+
+    # unique
+    unique = []
+    seen = set()
+    for c in candidates:
+        n = normalize_word(c)
+        if n and n not in seen:
+            seen.add(n)
+            unique.append(c)
+
+    return unique[:20]
+
+
+def extract_medicine_brand_candidates(text):
+    if not text:
+        return []
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    candidates = []
+
+    # first 8 lines usually contain brand name
+    for line in lines[:8]:
+        words = re.findall(r'[A-Za-z0-9]+', line)
+        for w in words:
+            nw = normalize_word(w)
+            if len(nw) >= 4 and not nw.isdigit():
+                candidates.append(w)
+
+    unique = []
+    seen = set()
+    for c in candidates:
+        n = normalize_word(c)
+        if n and n not in seen:
+            seen.add(n)
+            unique.append(c)
+
+    return unique[:20]
+
+
+def fuzzy_word_match(a, b):
+    na = normalize_word(a)
+    nb = normalize_word(b)
+
+    if not na or not nb:
+        return 0.0
+
+    if na == nb:
+        return 1.0
+
+    # remove common OCR confusion endings
+    # gudcet vs gudcef
+    if len(na) >= 5 and len(nb) >= 5:
+        if na[:-1] == nb[:-1]:
+            return 0.95
+        if na[:-2] == nb[:-2]:
+            return 0.90
+
+    return SequenceMatcher(None, na, nb).ratio()
+
+
+def find_best_medicine_match(prescription_text, medicine_text):
+    p_candidates = extract_prescription_medicine_candidates(prescription_text)
+    m_candidates = extract_medicine_brand_candidates(medicine_text)
+
+    best_score = 0.0
+    best_p = "Not found"
+    best_m = "Not found"
+
+    for p in p_candidates:
+        for m in m_candidates:
+            score = fuzzy_word_match(p, m)
+            if score > best_score:
+                best_score = score
+                best_p = p
+                best_m = m
+
+    # also compare full text fallback
+    p_norm = normalize_text(prescription_text)
+    m_norm = normalize_text(medicine_text)
+    full_score = 0.0
+    if p_norm and m_norm:
+        full_score = SequenceMatcher(None, p_norm[:400], m_norm[:400]).ratio()
+
+    final_score = max(best_score, full_score * 0.4)
+
+    matched = final_score >= 0.72
+
+    return {
+        "matched": matched,
+        "similarity": round(final_score * 100, 2),
+        "matched_prescription": best_p,
+        "matched_medicine": best_m,
+        "prescription_candidates": p_candidates,
+        "medicine_candidates": m_candidates,
+    }
 
 
 # ==========================================
@@ -212,7 +337,7 @@ def extract_expiry_date(text):
     for pattern in patterns:
         match = re.search(pattern, text, re.I)
         if match:
-            return match.group(1)
+            return match.group(1).replace("-", "/")
 
     return None
 
@@ -255,7 +380,15 @@ def extract_dosage_info(text):
     results += re.findall(r"\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b", text, re.I)
     results += re.findall(r"\bx\s*\d+\s*days?\b", text, re.I)
 
-    return list(dict.fromkeys([x.strip() for x in results]))
+    cleaned = []
+    seen = set()
+    for item in results:
+        item = re.sub(r"\s+", " ", item).strip()
+        if item not in seen:
+            seen.add(item)
+            cleaned.append(item)
+
+    return cleaned
 
 
 # ==========================================
@@ -269,7 +402,9 @@ def build_voice_message(result):
     parts = []
 
     if result.get("matched"):
-        parts.append("Good news. The prescription and medicine appear to match.")
+        parts.append(
+            f"Good news. The prescription medicine {result.get('matched_prescription')} matches the strip medicine {result.get('matched_medicine')}."
+        )
     else:
         parts.append("Warning. The prescription and medicine may not match.")
 
@@ -375,24 +510,8 @@ def home(request):
             prescription_text, prescription_debug = extract_text_from_image(prescription_path)
             medicine_text, medicine_debug = extract_text_from_image(medicine_path)
 
-            # Safe medicine match logic
-            p_norm = normalize_text(prescription_text)
-            m_norm = normalize_text(medicine_text)
-
-            matched = False
-            similarity = 0.0
-            matched_prescription = "Not found"
-            matched_medicine = "Not found"
-
-            # Strong fallback for Gudcef
-            if "gudcef" in p_norm and "gudcef" in m_norm:
-                matched = True
-                similarity = 0.92
-                matched_prescription = "Gudcef"
-                matched_medicine = "Gudcef"
-            elif p_norm and m_norm:
-                similarity = SequenceMatcher(None, p_norm[:300], m_norm[:300]).ratio()
-                matched = similarity >= 0.35
+            # Smart medicine matching
+            match_info = find_best_medicine_match(prescription_text, medicine_text)
 
             expiry_found = extract_expiry_date(medicine_text)
             expired = is_expired(expiry_found)
@@ -404,13 +523,15 @@ def home(request):
                 "medicine_text": medicine_text if medicine_text else "No text extracted",
                 "prescription_debug": prescription_debug,
                 "medicine_debug": medicine_debug,
-                "matched_prescription": matched_prescription,
-                "matched_medicine": matched_medicine,
-                "similarity": round(similarity * 100, 2),
-                "matched": matched,
+                "matched_prescription": match_info["matched_prescription"],
+                "matched_medicine": match_info["matched_medicine"],
+                "similarity": match_info["similarity"],
+                "matched": match_info["matched"],
                 "expiry_found": expiry_found,
                 "expired": expired,
                 "dosage": dosage,
+                "prescription_candidates": match_info["prescription_candidates"],
+                "medicine_candidates": match_info["medicine_candidates"],
             }
 
             result["voice_message"] = build_voice_message(result)
@@ -430,6 +551,8 @@ def home(request):
                 "expiry_found": None,
                 "expired": None,
                 "dosage": [],
+                "prescription_candidates": [],
+                "medicine_candidates": [],
                 "voice_message": "Unable to analyze the medicine safely. Please try again.",
                 "servam_audio_url": None,
             }
