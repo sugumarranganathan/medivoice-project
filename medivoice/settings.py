@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # ==========================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load local .env (for local development)
+# Load local .env file (for local development)
 load_dotenv(BASE_DIR / ".env")
 
 
@@ -22,15 +22,11 @@ SECRET_KEY = os.getenv(
 
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
-# Add your Render domain here
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
     ".onrender.com",
 ]
-
-# If you want to add custom domain later:
-# ALLOWED_HOSTS += ["yourdomain.com", "www.yourdomain.com"]
 
 
 # ==========================================
@@ -43,7 +39,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "assistant",   # your app
+    "assistant",
 ]
 
 
@@ -52,7 +48,7 @@ INSTALLED_APPS = [
 # ==========================================
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",   # WhiteNoise before SessionMiddleware
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -63,15 +59,15 @@ MIDDLEWARE = [
 
 
 # ==========================================
-# URLS / WSGI
+# URLS / TEMPLATES / WSGI
 # ==========================================
-ROOT_URLCONF = "project.urls"   # change if your project folder name is different
+ROOT_URLCONF = "medivoice.urls"
 
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],   # optional project-level templates
-        "APP_DIRS": True,                   # important for assistant/templates/home.html
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.debug",
@@ -83,14 +79,12 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "project.wsgi.application"   # change if project folder name differs
+WSGI_APPLICATION = "medivoice.wsgi.application"
 
 
 # ==========================================
 # DATABASE
 # ==========================================
-# If DATABASE_URL exists (Render Postgres), use it
-# Else fallback to SQLite
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
@@ -144,12 +138,9 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# Optional extra static folder if you create project-level static/
-STATICFILES_DIRS = [
-    BASE_DIR / "static",
-]
+# Keep empty to avoid Render error if /static folder does not exist
+STATICFILES_DIRS = []
 
-# WhiteNoise storage
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 
@@ -171,7 +162,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # ==========================================
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# Only force HTTPS in production
 if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
@@ -183,9 +173,8 @@ else:
 
 
 # ==========================================
-# UPLOAD LIMITS (important for camera base64 images)
+# UPLOAD LIMITS (important for camera/base64 images)
 # ==========================================
-# Increase limits because camera captures can be large
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB
 
@@ -200,7 +189,7 @@ SERVAM_API_URL = os.getenv("SERVAM_API_URL", "")
 
 
 # ==========================================
-# LOGGING (optional but useful on Render)
+# LOGGING
 # ==========================================
 LOGGING = {
     "version": 1,
