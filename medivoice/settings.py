@@ -1,43 +1,19 @@
 import os
 from pathlib import Path
 import dj_database_url
-from dotenv import load_dotenv
 
-# ==========================================
-# BASE DIR + ENV
-# ==========================================
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Load local .env for local development only
-load_dotenv(BASE_DIR / ".env")
+SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-temp-key")
 
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
-# ==========================================
-# SECURITY
-# ==========================================
-SECRET_KEY = os.getenv(
-    "SECRET_KEY",
-    "django-insecure-change-this-in-render-production"
-)
-
-DEBUG = os.getenv("DEBUG", "False").strip().lower() == "true"
-
-# Safe default hosts
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
     ".onrender.com",
 ]
 
-# Optional custom hosts from environment
-extra_hosts = os.getenv("ALLOWED_HOSTS", "").strip()
-if extra_hosts:
-    ALLOWED_HOSTS += [host.strip() for host in extra_hosts.split(",") if host.strip()]
-
-
-# ==========================================
-# INSTALLED APPS
-# ==========================================
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -48,10 +24,6 @@ INSTALLED_APPS = [
     "assistant",
 ]
 
-
-# ==========================================
-# MIDDLEWARE
-# ==========================================
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -63,10 +35,6 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-
-# ==========================================
-# URLS / TEMPLATES / WSGI
-# ==========================================
 ROOT_URLCONF = "medivoice.urls"
 
 TEMPLATES = [
@@ -76,7 +44,6 @@ TEMPLATES = [
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
-                "django.template.context_processors.debug",
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
@@ -87,19 +54,11 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "medivoice.wsgi.application"
 
-
-# ==========================================
-# DATABASE
-# ==========================================
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
     DATABASES = {
-        "default": dj_database_url.parse(
-            DATABASE_URL,
-            conn_max_age=600,
-            ssl_require=True
-        )
+        "default": dj_database_url.parse(DATABASE_URL, conn_max_age=600, ssl_require=True)
     }
 else:
     DATABASES = {
@@ -109,63 +68,23 @@ else:
         }
     }
 
+AUTH_PASSWORD_VALIDATORS = []
 
-# ==========================================
-# PASSWORD VALIDATION
-# ==========================================
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
-    },
-]
-
-
-# ==========================================
-# INTERNATIONALIZATION
-# ==========================================
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Kolkata"
 USE_I18N = True
 USE_TZ = True
 
-
-# ==========================================
-# STATIC FILES (Render + WhiteNoise)
-# ==========================================
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-
-# Keep empty if you do not have a local static/ folder
 STATICFILES_DIRS = []
-
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-
-# ==========================================
-# MEDIA FILES
-# ==========================================
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-
-# ==========================================
-# DEFAULT AUTO FIELD
-# ==========================================
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-
-# ==========================================
-# RENDER / PRODUCTION SECURITY
-# ==========================================
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 if not DEBUG:
@@ -177,36 +96,9 @@ else:
     CSRF_COOKIE_SECURE = False
     SECURE_SSL_REDIRECT = False
 
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 
-# ==========================================
-# UPLOAD LIMITS (important for camera/base64 images)
-# ==========================================
-DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB
-
-
-# ==========================================
-# EXTERNAL API KEYS
-# ==========================================
-OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "").strip()
-
-SERVAM_API_KEY = os.getenv("SERVAM_API_KEY", "").strip()
-SERVAM_API_URL = os.getenv("SERVAM_API_URL", "").strip()
-
-
-# ==========================================
-# LOGGING (helps Render logs)
-# ==========================================
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-        },
-    },
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO",
-    },
-}
+OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "")
+SERVAM_API_KEY = os.getenv("SERVAM_API_KEY", "")
+SERVAM_API_URL = os.getenv("SERVAM_API_URL", "")
