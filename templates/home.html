@@ -141,12 +141,13 @@
       font-size: 16px;
     }
 
-    .preview-box img, .preview-box video {
+    .preview-box img {
       width: 100%;
       max-height: 320px;
       object-fit: contain;
       border-radius: 12px;
       background: #e2e8f0;
+      min-height: 120px;
     }
 
     .camera-section {
@@ -222,49 +223,49 @@
       display: block;
     }
 
-    .start-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(15, 23, 42, 0.92);
+    .voice-panel {
+      margin-bottom: 18px;
+      background: #ecfeff;
+      border: 2px solid #a5f3fc;
+      border-radius: 18px;
+      padding: 16px;
+    }
+
+    .voice-panel h3 {
+      margin: 0 0 10px 0;
+      color: #0f172a;
+    }
+
+    .voice-buttons {
       display: flex;
-      align-items: center;
       justify-content: center;
-      z-index: 9999;
-      padding: 20px;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
     }
 
-    .start-card {
-      max-width: 760px;
-      width: 100%;
-      background: white;
-      border-radius: 24px;
-      padding: 28px;
-      text-align: center;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.25);
-    }
-
-    .start-card h2 {
-      margin-top: 0;
-      font-size: 28px;
-      color: #111827;
-      line-height: 1.4;
-    }
-
-    .start-card p {
-      font-size: 18px;
-      color: #475569;
-      line-height: 1.7;
-      margin-bottom: 0;
-    }
-
-    .big-start-btn {
-      margin-top: 18px;
+    .yes-btn {
       background: #16a34a;
       color: white;
-      font-size: 22px;
-      padding: 18px 28px;
-      border-radius: 16px;
-      min-width: 300px;
+      font-size: 18px;
+      padding: 14px 22px;
+      min-width: 140px;
+    }
+
+    .no-btn {
+      background: #dc2626;
+      color: white;
+      font-size: 18px;
+      padding: 14px 22px;
+      min-width: 140px;
+    }
+
+    .listen-btn {
+      background: #7c3aed;
+      color: white;
+      font-size: 16px;
+      padding: 14px 22px;
+      min-width: 180px;
     }
 
     .hidden-canvas {
@@ -285,20 +286,7 @@
         font-size: 22px;
       }
 
-      .start-card h2 {
-        font-size: 22px;
-      }
-
-      .start-card p {
-        font-size: 16px;
-      }
-
-      .big-start-btn {
-        width: 100%;
-        min-width: auto;
-      }
-
-      .green-btn, .red-btn {
+      .green-btn, .red-btn, .yes-btn, .no-btn, .listen-btn {
         width: 100%;
       }
     }
@@ -306,25 +294,22 @@
 </head>
 <body>
 
-  <div class="start-overlay" id="startOverlay">
-    <div class="start-card">
-      <h2>Medicine & Prescription Verifier AI (Elderly People & Visually Impaired Person)</h2>
-      <p>
-        This app is voice guided for elderly people and visually impaired persons.
-        Tap the green button once. After that, the app will automatically:
-        open prescription camera, capture after 10 seconds, then open medicine strip or medicine camera,
-        capture after 10 seconds, and automatically analyze the result.
-      </p>
-      <button class="big-start-btn" id="startAutoFlowBtn">▶ Start Voice Guided Scan</button>
-    </div>
-  </div>
-
   <div class="container">
     <h1>Medicine & Prescription Verifier AI (Elderly People & Visually Impaired Person)</h1>
     <p class="sub">
       Upload or capture a prescription image and a medicine strip or medicine image to verify medicine details.
       This application is specially designed for elderly people and visually impaired persons with automatic voice guidance.
     </p>
+
+    <div class="voice-panel">
+      <h3>Voice Guided Start</h3>
+      <div id="voicePromptText">When page opens, app will ask: “Do you want to start? Say Yes or No.”</div>
+      <div class="voice-buttons">
+        <button type="button" class="yes-btn" id="yesBtn">✅ Yes</button>
+        <button type="button" class="no-btn" id="noBtn">❌ No</button>
+        <button type="button" class="listen-btn" id="listenBtn">🎤 Start Voice Listening</button>
+      </div>
+    </div>
 
     <form id="uploadForm" method="POST" enctype="multipart/form-data">
       {% csrf_token %}
@@ -357,7 +342,7 @@
 
     <div class="camera-section" id="cameraSection">
       <div class="camera-title" id="cameraTitle">Camera</div>
-      <video id="video" autoplay playsinline muted></video>
+      <video id="video" autoplay playsinline muted style="width:100%; max-height:420px; border-radius:12px; background:#000;"></video>
       <div class="camera-countdown" id="countdownText"></div>
       <div class="btn-row" style="justify-content:center;">
         <button type="button" class="orange-btn" id="manualCaptureBtn">📸 Capture Now</button>
@@ -379,7 +364,7 @@
     </div>
 
     <div class="status-box" id="statusBox">
-      Ready. Tap “Start Voice Guided Scan”.
+      Ready. Waiting for Yes / No.
     </div>
 
     <div class="loading" id="loadingText">⏳ Analyzing... Please wait...</div>
@@ -417,35 +402,55 @@
     const stopCameraBtn = document.getElementById("stopCameraBtn");
 
     const statusBox = document.getElementById("statusBox");
-    const startOverlay = document.getElementById("startOverlay");
-    const startAutoFlowBtn = document.getElementById("startAutoFlowBtn");
     const resultBox = document.getElementById("resultBox");
     const resultText = document.getElementById("resultText");
 
+    const yesBtn = document.getElementById("yesBtn");
+    const noBtn = document.getElementById("noBtn");
+    const listenBtn = document.getElementById("listenBtn");
+    const voicePromptText = document.getElementById("voicePromptText");
+
     let currentStream = null;
-    let currentTarget = null; // "prescription" or "medicine"
+    let currentTarget = null;
     let countdownInterval = null;
-    let autoFlowRunning = false;
+    let currentStep = "start"; // start, wait_second_confirm, done
     let speechEnabled = true;
+    let recognition = null;
+    let isListening = false;
 
     function updateStatus(msg) {
       statusBox.innerText = msg;
       console.log(msg);
     }
 
-    function speak(text, priority = false) {
-      if (!speechEnabled) return;
+    function updateVoicePrompt(msg) {
+      voicePromptText.innerText = msg;
+    }
+
+    function speak(text, priority = false, callback = null) {
+      if (!speechEnabled) {
+        if (callback) callback();
+        return;
+      }
+
       try {
         if (priority) {
           window.speechSynthesis.cancel();
         }
+
         const utter = new SpeechSynthesisUtterance(text);
         utter.rate = 0.95;
         utter.pitch = 1;
         utter.volume = 1;
+
+        if (callback) {
+          utter.onend = callback;
+        }
+
         window.speechSynthesis.speak(utter);
       } catch (e) {
         console.log("Speech failed:", e);
+        if (callback) callback();
       }
     }
 
@@ -481,12 +486,74 @@
       reader.readAsDataURL(file);
     }
 
+    function setupSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        updateStatus("Voice recognition not supported in this browser. Use Yes / No buttons.");
+        updateVoicePrompt("Voice recognition not supported. Please use Yes / No buttons.");
+        return false;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        isListening = true;
+        updateStatus("Listening... Please say Yes or No.");
+        updateVoicePrompt("Listening... Please say Yes or No.");
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript.toLowerCase().trim();
+        console.log("Voice heard:", transcript);
+        isListening = false;
+
+        if (transcript.includes("yes")) {
+          handleYes();
+        } else if (transcript.includes("no")) {
+          handleNo();
+        } else {
+          speak("I did not understand. Please say Yes or No.", true, () => {
+            startListening();
+          });
+        }
+      };
+
+      recognition.onerror = () => {
+        isListening = false;
+        updateStatus("Voice recognition failed. Please use Yes or No buttons.");
+      };
+
+      recognition.onend = () => {
+        isListening = false;
+      };
+
+      return true;
+    }
+
+    function startListening() {
+      if (!recognition) {
+        const ok = setupSpeechRecognition();
+        if (!ok) return;
+      }
+
+      try {
+        if (isListening) return;
+        recognition.start();
+      } catch (e) {
+        console.log("Recognition start failed:", e);
+      }
+    }
+
     async function openCamera(target) {
       try {
         stopCamera();
 
         currentTarget = target;
         cameraSection.classList.add("active");
+
         cameraTitle.innerText = target === "prescription"
           ? "Prescription Camera (Auto capture in 10 seconds)"
           : "Medicine Strip or Medicine Camera (Auto capture in 10 seconds)";
@@ -505,9 +572,7 @@
         );
 
         currentStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" }
-          },
+          video: { facingMode: { ideal: "environment" } },
           audio: false
         });
 
@@ -519,7 +584,6 @@
         console.error("Camera open failed:", error);
         updateStatus("Camera access failed. Please allow camera permission and try again.");
         speak("Camera access failed. Please allow camera permission and try again.", true);
-        autoFlowRunning = false;
       }
     }
 
@@ -556,12 +620,12 @@
         setFileInput(prescriptionInput, file);
         previewImage(prescriptionPreview, file);
         updateStatus("Prescription image captured successfully.");
-        speak("Prescription image captured successfully.", true);
+        speak("Prescription image captured successfully.", true, askSecondCamera);
       } else {
         setFileInput(medicineInput, file);
         previewImage(medicinePreview, file);
         updateStatus("Medicine strip or medicine image captured successfully.");
-        speak("Medicine strip or medicine image captured successfully.", true);
+        speak("Medicine strip or medicine image captured successfully.", true, autoSubmitAnalyze);
       }
 
       stopCamera();
@@ -586,113 +650,121 @@
           countdownInterval = null;
           countdownText.innerText = "Capturing now...";
           speak("Capturing now.", true);
-          const ok = captureCurrentFrame();
-          if (ok) {
-            proceedAutoFlow();
-          }
+          captureCurrentFrame();
         }
       }, 1000);
     }
 
-    function proceedAutoFlow() {
-      if (!autoFlowRunning) return;
+    function askStartQuestion() {
+      currentStep = "start";
+      updateStatus("Waiting for answer. Do you want to start?");
+      updateVoicePrompt("Do you want to start? Say Yes or No.");
+      speak("Do you want to start? Please say Yes or No.", true, () => {
+        startListening();
+      });
+    }
 
-      if (prescriptionInput.files.length && !medicineInput.files.length) {
-        setTimeout(() => {
+    function askSecondCamera() {
+      currentStep = "wait_second_confirm";
+      updateStatus("Do you want to open second camera?");
+      updateVoicePrompt("Do you want to open second camera? Say Yes or No.");
+      speak("Do you want to open second camera? Please say Yes or No.", true, () => {
+        startListening();
+      });
+    }
+
+    function handleYes() {
+      if (currentStep === "start") {
+        updateStatus("Yes received. Opening first camera.");
+        updateVoicePrompt("Yes received. Opening first camera.");
+        speak("Yes received. Opening first camera now.", true, () => {
+          openCamera("prescription");
+        });
+      } else if (currentStep === "wait_second_confirm") {
+        updateStatus("Yes received. Opening second camera.");
+        updateVoicePrompt("Yes received. Opening second camera.");
+        speak("Yes received. Opening second camera now.", true, () => {
           openCamera("medicine");
-        }, 1500);
-      } else if (prescriptionInput.files.length && medicineInput.files.length) {
-        setTimeout(() => {
-          updateStatus("Both images captured. Starting analysis...");
-          speak("Both images captured. Starting analysis now.", true);
-          autoSubmitAnalyze();
-        }, 1200);
+        });
       }
     }
 
+    function handleNo() {
+      updateStatus("Scan cancelled. You can start later.");
+      updateVoicePrompt("Scan cancelled. You can start later.");
+      speak("Okay. Scan cancelled. You can start later.", true);
+    }
+
     function autoSubmitAnalyze() {
+      if (!prescriptionInput.files.length || !medicineInput.files.length) {
+        updateStatus("Both images are required before analysis.");
+        speak("Both images are required before analysis.", true);
+        return;
+      }
+
+      currentStep = "done";
+      updateStatus("Both images captured. Starting analysis...");
+      updateVoicePrompt("Both images captured. Starting analysis...");
+      speak("Both images captured. Starting analysis now.", true);
+
       loadingText.classList.add("active");
       analyzeBtn.disabled = true;
       analyzeBtn.innerText = "Analyzing...";
-      uploadForm.submit();
+      setTimeout(() => {
+        uploadForm.submit();
+      }, 800);
     }
 
     function clearAllData() {
       stopSpeaking();
       stopCamera();
 
-      autoFlowRunning = false;
       currentTarget = null;
+      currentStep = "start";
 
-      cameraSection.classList.remove("active");
-
-      // Clear file inputs
       prescriptionInput.value = "";
       medicineInput.value = "";
 
-      // Clear previews
       prescriptionPreview.src = "";
       medicinePreview.src = "";
 
-      // Hide loading
       loadingText.classList.remove("active");
 
-      // Reset analyze button
       analyzeBtn.disabled = false;
       analyzeBtn.innerText = "🔎 Analyze";
 
-      // Hide result box if exists
       if (resultBox) {
         resultBox.style.display = "none";
       }
 
-      // Reset status
       updateStatus("All details cleared. Ready for new scan.");
+      updateVoicePrompt("All details cleared. Ready for new scan.");
       speak("All details cleared. Ready for new scan.", true);
     }
 
-    function startGuidedFlow() {
-      startOverlay.style.display = "none";
-      autoFlowRunning = true;
-
-      stopSpeaking();
-      speak(
-        "Welcome to Medicine and Prescription Verifier A I for elderly people and visually impaired persons. Step 1. We will capture the prescription image automatically in 10 seconds. Please keep the prescription paper clearly in front of the camera.",
-        true
-      );
-
-      updateStatus("Voice guided scan started. Opening prescription camera...");
-      setTimeout(() => {
-        openCamera("prescription");
-      }, 1500);
-    }
-
     // Manual buttons
+    yesBtn.addEventListener("click", handleYes);
+    noBtn.addEventListener("click", handleNo);
+    listenBtn.addEventListener("click", startListening);
+
     openPrescriptionCameraBtn.addEventListener("click", () => {
-      autoFlowRunning = false;
       openCamera("prescription");
     });
 
     openMedicineCameraBtn.addEventListener("click", () => {
-      autoFlowRunning = false;
       openCamera("medicine");
     });
 
     capturePrescriptionBtn.addEventListener("click", async () => {
-      autoFlowRunning = false;
       await openCamera("prescription");
     });
 
     captureMedicineBtn.addEventListener("click", async () => {
-      autoFlowRunning = false;
       await openCamera("medicine");
     });
 
     manualCaptureBtn.addEventListener("click", () => {
-      const ok = captureCurrentFrame();
-      if (ok && autoFlowRunning) {
-        proceedAutoFlow();
-      }
+      captureCurrentFrame();
     });
 
     stopCameraBtn.addEventListener("click", () => {
@@ -700,7 +772,6 @@
       cameraSection.classList.remove("active");
       updateStatus("Camera stopped.");
       speak("Camera stopped.", true);
-      autoFlowRunning = false;
     });
 
     clearAllBtn.addEventListener("click", clearAllData);
@@ -729,26 +800,20 @@
       analyzeBtn.disabled = true;
       analyzeBtn.innerText = "Analyzing...";
       updateStatus("Analyzing images...");
-      speak("Analyzing images. Please wait.", true);
     });
 
-    startAutoFlowBtn.addEventListener("click", startGuidedFlow);
-
-    // On page load - voice only (camera cannot auto-open without user tap in browser)
     window.addEventListener("load", () => {
       setTimeout(() => {
-        speak(
-          "Welcome to Medicine and Prescription Verifier A I for elderly people and visually impaired persons. This app is designed for elderly people and visually impaired users. Please tap the Start Voice Guided Scan button once. Then the app will automatically capture prescription image in 10 seconds, capture medicine strip or medicine image in 10 seconds, and analyze the result.",
-          true
-        );
-      }, 800);
+        askStartQuestion();
+      }, 1200);
 
       if (resultText && resultText.innerText.trim()) {
         setTimeout(() => {
-          speak("Analysis completed. Reading result now.", true);
-          setTimeout(() => {
-            speak(resultText.innerText);
-          }, 1000);
+          speak("Analysis completed. Reading result now.", true, () => {
+            setTimeout(() => {
+              speak(resultText.innerText);
+            }, 800);
+          });
         }, 1500);
       }
     });
