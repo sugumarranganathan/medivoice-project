@@ -292,8 +292,8 @@
       <p>
         This app is voice guided for elderly people and visually impaired persons.
         Tap the green button once. After that, the app will automatically:
-        open prescription camera, capture after 5 seconds, then open medicine strip or medicine camera,
-        capture after 5 seconds, and automatically analyze the result.
+        open prescription camera, capture after 10 seconds, then open medicine strip or medicine camera,
+        capture after 10 seconds, and automatically analyze the result.
       </p>
       <button class="big-start-btn" id="startAutoFlowBtn">▶ Start Voice Guided Scan</button>
     </div>
@@ -462,8 +462,8 @@
         currentTarget = target;
         cameraSection.classList.add("active");
         cameraTitle.innerText = target === "prescription"
-          ? "Prescription Camera (Auto capture in 5 seconds)"
-          : "Medicine Strip or Medicine Camera (Auto capture in 5 seconds)";
+          ? "Prescription Camera (Auto capture in 10 seconds)"
+          : "Medicine Strip or Medicine Camera (Auto capture in 10 seconds)";
 
         updateStatus(
           target === "prescription"
@@ -473,8 +473,8 @@
 
         speak(
           target === "prescription"
-            ? "Opening prescription camera. Please hold the prescription steady."
-            : "Opening medicine strip or medicine camera. Please hold the medicine strip or medicine packet steady.",
+            ? "Opening prescription camera. Please hold the prescription steady. Auto capture in 10 seconds."
+            : "Opening medicine strip or medicine camera. Please hold the medicine strip or medicine packet steady. Auto capture in 10 seconds.",
           true
         );
 
@@ -488,7 +488,7 @@
         video.srcObject = currentStream;
         await video.play();
 
-        startCountdownAndAutoCapture(5);
+        startCountdownAndAutoCapture(10);
       } catch (error) {
         console.error("Camera open failed:", error);
         updateStatus("Camera access failed. Please allow camera permission and try again.");
@@ -551,10 +551,22 @@
         timeLeft--;
         if (timeLeft > 0) {
           countdownText.innerText = `Capturing in ${timeLeft}...`;
+
+          // Optional voice alerts at key points
+          if (timeLeft === 5) {
+            speak("5 seconds remaining.");
+          }
+          if (timeLeft === 3) {
+            speak("3 seconds remaining.");
+          }
+          if (timeLeft === 1) {
+            speak("1 second remaining.");
+          }
         } else {
           clearInterval(countdownInterval);
           countdownInterval = null;
           countdownText.innerText = "Capturing now...";
+          speak("Capturing now.", true);
           const ok = captureCurrentFrame();
           if (ok) {
             proceedAutoFlow();
@@ -592,7 +604,7 @@
 
       stopSpeaking();
       speak(
-        "Welcome to Medicine and Prescription Verifier A I for elderly people and visually impaired persons. Step 1. We will capture the prescription image automatically in 5 seconds. Please keep the prescription paper clearly in front of the camera.",
+        "Welcome to Medicine and Prescription Verifier A I for elderly people and visually impaired persons. Step 1. We will capture the prescription image automatically in 10 seconds. Please keep the prescription paper clearly in front of the camera.",
         true
       );
 
@@ -671,7 +683,7 @@
     window.addEventListener("load", () => {
       setTimeout(() => {
         speak(
-          "Welcome to Medicine and Prescription Verifier A I for elderly people and visually impaired persons. This app is designed for elderly people and visually impaired users. Please tap the Start Voice Guided Scan button once. Then the app will automatically capture prescription image, capture medicine strip or medicine image, and analyze the result.",
+          "Welcome to Medicine and Prescription Verifier A I for elderly people and visually impaired persons. This app is designed for elderly people and visually impaired users. Please tap the Start Voice Guided Scan button once. Then the app will automatically capture prescription image in 10 seconds, capture medicine strip or medicine image in 10 seconds, and analyze the result.",
           true
         );
       }, 800);
