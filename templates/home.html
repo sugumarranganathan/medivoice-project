@@ -516,14 +516,16 @@
           handleNo();
         } else {
           speak("I did not understand. Please say Yes or No.", true, () => {
-            startListening();
+            setTimeout(() => {
+              startListening();
+            }, 500);
           });
         }
       };
 
       recognition.onerror = () => {
         isListening = false;
-        updateStatus("Voice recognition failed. Please use Yes or No buttons.");
+        updateStatus("Voice recognition failed. Please use Yes / No buttons.");
       };
 
       recognition.onend = () => {
@@ -620,16 +622,31 @@
         setFileInput(prescriptionInput, file);
         previewImage(prescriptionPreview, file);
         updateStatus("Prescription image captured successfully.");
-        speak("Prescription image captured successfully.", true, askSecondCamera);
+        speak("Prescription image captured successfully.", true);
+
+        stopCamera();
+        cameraSection.classList.remove("active");
+
+        // Ask second camera after short stable delay
+        setTimeout(() => {
+          askSecondCamera();
+        }, 800);
+
       } else {
         setFileInput(medicineInput, file);
         previewImage(medicinePreview, file);
         updateStatus("Medicine strip or medicine image captured successfully.");
-        speak("Medicine strip or medicine image captured successfully.", true, autoSubmitAnalyze);
+        speak("Medicine strip or medicine image captured successfully.", true);
+
+        stopCamera();
+        cameraSection.classList.remove("active");
+
+        // Safe delay before auto analyze
+        setTimeout(() => {
+          safeAutoSubmitAnalyze();
+        }, 1200);
       }
 
-      stopCamera();
-      cameraSection.classList.remove("active");
       return true;
     }
 
@@ -660,7 +677,9 @@
       updateStatus("Waiting for answer. Do you want to start?");
       updateVoicePrompt("Do you want to start? Say Yes or No.");
       speak("Do you want to start? Please say Yes or No.", true, () => {
-        startListening();
+        setTimeout(() => {
+          startListening();
+        }, 500);
       });
     }
 
@@ -669,22 +688,30 @@
       updateStatus("Do you want to open second camera?");
       updateVoicePrompt("Do you want to open second camera? Say Yes or No.");
       speak("Do you want to open second camera? Please say Yes or No.", true, () => {
-        startListening();
+        setTimeout(() => {
+          startListening();
+        }, 500);
       });
     }
 
     function handleYes() {
       if (currentStep === "start") {
+        currentStep = "opening_first";
         updateStatus("Yes received. Opening first camera.");
         updateVoicePrompt("Yes received. Opening first camera.");
         speak("Yes received. Opening first camera now.", true, () => {
-          openCamera("prescription");
+          setTimeout(() => {
+            openCamera("prescription");
+          }, 400);
         });
       } else if (currentStep === "wait_second_confirm") {
+        currentStep = "opening_second";
         updateStatus("Yes received. Opening second camera.");
         updateVoicePrompt("Yes received. Opening second camera.");
         speak("Yes received. Opening second camera now.", true, () => {
-          openCamera("medicine");
+          setTimeout(() => {
+            openCamera("medicine");
+          }, 400);
         });
       }
     }
@@ -710,9 +737,29 @@
       loadingText.classList.add("active");
       analyzeBtn.disabled = true;
       analyzeBtn.innerText = "Analyzing...";
+
+      // Slight delay for browser stability
       setTimeout(() => {
         uploadForm.submit();
       }, 800);
+    }
+
+    function safeAutoSubmitAnalyze() {
+      // First check
+      if (prescriptionInput.files.length > 0 && medicineInput.files.length > 0) {
+        autoSubmitAnalyze();
+        return;
+      }
+
+      // Retry once after short delay
+      setTimeout(() => {
+        if (prescriptionInput.files.length > 0 && medicineInput.files.length > 0) {
+          autoSubmitAnalyze();
+        } else {
+          updateStatus("Capture incomplete. Please retake images.");
+          speak("Capture incomplete. Please retake both images.", true);
+        }
+      }, 1000);
     }
 
     function clearAllData() {
@@ -748,18 +795,22 @@
     listenBtn.addEventListener("click", startListening);
 
     openPrescriptionCameraBtn.addEventListener("click", () => {
+      currentStep = "opening_first";
       openCamera("prescription");
     });
 
     openMedicineCameraBtn.addEventListener("click", () => {
+      currentStep = "opening_second";
       openCamera("medicine");
     });
 
     capturePrescriptionBtn.addEventListener("click", async () => {
+      currentStep = "opening_first";
       await openCamera("prescription");
     });
 
     captureMedicineBtn.addEventListener("click", async () => {
+      currentStep = "opening_second";
       await openCamera("medicine");
     });
 
