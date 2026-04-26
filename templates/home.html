@@ -106,6 +106,22 @@
       color: white;
     }
 
+    .red-btn {
+      background: #dc2626;
+      color: white;
+      font-size: 18px;
+      padding: 16px 24px;
+      min-width: 180px;
+    }
+
+    .action-row {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
     .preview-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -281,6 +297,10 @@
         width: 100%;
         min-width: auto;
       }
+
+      .green-btn, .red-btn {
+        width: 100%;
+      }
     }
   </style>
 </head>
@@ -329,7 +349,10 @@
         </div>
       </div>
 
-      <button type="submit" class="green-btn" id="analyzeBtn">🔎 Analyze</button>
+      <div class="action-row">
+        <button type="submit" class="green-btn" id="analyzeBtn">🔎 Analyze</button>
+        <button type="button" class="red-btn" id="clearAllBtn">🗑 Clear All</button>
+      </div>
     </form>
 
     <div class="camera-section" id="cameraSection">
@@ -382,6 +405,7 @@
 
     const uploadForm = document.getElementById("uploadForm");
     const analyzeBtn = document.getElementById("analyzeBtn");
+    const clearAllBtn = document.getElementById("clearAllBtn");
     const loadingText = document.getElementById("loadingText");
 
     const cameraSection = document.getElementById("cameraSection");
@@ -395,6 +419,8 @@
     const statusBox = document.getElementById("statusBox");
     const startOverlay = document.getElementById("startOverlay");
     const startAutoFlowBtn = document.getElementById("startAutoFlowBtn");
+    const resultBox = document.getElementById("resultBox");
+    const resultText = document.getElementById("resultText");
 
     let currentStream = null;
     let currentTarget = null; // "prescription" or "medicine"
@@ -552,16 +578,9 @@
         if (timeLeft > 0) {
           countdownText.innerText = `Capturing in ${timeLeft}...`;
 
-          // Optional voice alerts at key points
-          if (timeLeft === 5) {
-            speak("5 seconds remaining.");
-          }
-          if (timeLeft === 3) {
-            speak("3 seconds remaining.");
-          }
-          if (timeLeft === 1) {
-            speak("1 second remaining.");
-          }
+          if (timeLeft === 5) speak("5 seconds remaining.");
+          if (timeLeft === 3) speak("3 seconds remaining.");
+          if (timeLeft === 1) speak("1 second remaining.");
         } else {
           clearInterval(countdownInterval);
           countdownInterval = null;
@@ -596,6 +615,40 @@
       analyzeBtn.disabled = true;
       analyzeBtn.innerText = "Analyzing...";
       uploadForm.submit();
+    }
+
+    function clearAllData() {
+      stopSpeaking();
+      stopCamera();
+
+      autoFlowRunning = false;
+      currentTarget = null;
+
+      cameraSection.classList.remove("active");
+
+      // Clear file inputs
+      prescriptionInput.value = "";
+      medicineInput.value = "";
+
+      // Clear previews
+      prescriptionPreview.src = "";
+      medicinePreview.src = "";
+
+      // Hide loading
+      loadingText.classList.remove("active");
+
+      // Reset analyze button
+      analyzeBtn.disabled = false;
+      analyzeBtn.innerText = "🔎 Analyze";
+
+      // Hide result box if exists
+      if (resultBox) {
+        resultBox.style.display = "none";
+      }
+
+      // Reset status
+      updateStatus("All details cleared. Ready for new scan.");
+      speak("All details cleared. Ready for new scan.", true);
     }
 
     function startGuidedFlow() {
@@ -650,6 +703,8 @@
       autoFlowRunning = false;
     });
 
+    clearAllBtn.addEventListener("click", clearAllData);
+
     prescriptionInput.addEventListener("change", function() {
       if (this.files && this.files[0]) {
         previewImage(prescriptionPreview, this.files[0]);
@@ -688,7 +743,6 @@
         );
       }, 800);
 
-      const resultText = document.getElementById("resultText");
       if (resultText && resultText.innerText.trim()) {
         setTimeout(() => {
           speak("Analysis completed. Reading result now.", true);
