@@ -27,6 +27,10 @@
       margin-top: 0;
     }
 
+    p {
+      color: #475569;
+    }
+
     .btn {
       background: #0f766e;
       color: #fff;
@@ -37,84 +41,33 @@
       font-size: 18px;
       font-weight: bold;
       margin-top: 12px;
+      transition: 0.2s ease;
     }
 
     .btn:hover {
       background: #0d5f59;
     }
 
-    .section {
-      margin-top: 18px;
-      padding: 18px;
-      border-radius: 16px;
-      border: 1px solid #dbe4ee;
-      background: #f9fbfd;
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
     }
 
-    .success {
-      background: #dff5e6;
-      color: #166534;
-      border: 1px solid #bbf7d0;
-      font-weight: bold;
-      padding: 16px;
-      border-radius: 14px;
-      font-size: 18px;
-    }
-
-    .danger {
-      background: #fde2e2;
-      color: #991b1b;
-      border: 1px solid #fecaca;
-      font-weight: bold;
-      padding: 16px;
-      border-radius: 14px;
-      font-size: 18px;
-    }
-
-    .ok-box {
-      margin-top: 12px;
-      background: #dff5e6;
-      color: #166534;
-      padding: 14px;
-      border-radius: 12px;
-      font-weight: bold;
-    }
-
-    .warn-box {
-      margin-top: 12px;
-      background: #fde2e2;
-      color: #991b1b;
-      padding: 14px;
-      border-radius: 12px;
-      font-weight: bold;
-    }
-
-    .tag {
-      display: inline-block;
+    .small-btn {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      margin-right: 8px;
       margin-top: 8px;
-      padding: 6px 12px;
-      border-radius: 999px;
-      font-size: 14px;
       font-weight: bold;
+      transition: 0.2s ease;
     }
 
-    .tag-green {
-      background: #d1fae5;
-      color: #166534;
-    }
-
-    .tag-blue {
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
-
-    .error-box {
-      background: #fee2e2;
-      color: #991b1b;
-      padding: 16px;
-      border-radius: 14px;
-      font-weight: bold;
-      margin-top: 20px;
+    .small-btn:hover {
+      background: #1d4ed8;
     }
 
     .grid {
@@ -135,6 +88,7 @@
       display: block;
       margin-bottom: 8px;
       font-weight: bold;
+      color: #111827;
     }
 
     input[type="file"] {
@@ -144,14 +98,14 @@
 
     .preview {
       margin-top: 10px;
+      width: 100%;
       max-width: 100%;
+      max-height: 340px;
+      object-fit: contain;
       border-radius: 12px;
       display: none;
       border: 1px solid #dbe4ee;
-    }
-
-    ul {
-      margin: 8px 0 0 24px;
+      background: #fff;
     }
 
     .camera-controls {
@@ -161,43 +115,129 @@
     video, canvas {
       width: 100%;
       max-width: 100%;
+      max-height: 340px;
+      object-fit: contain;
       border-radius: 12px;
       margin-top: 10px;
       border: 1px solid #dbe4ee;
       display: none;
+      background: #000;
     }
 
-    .small-btn {
-      background: #2563eb;
-      color: white;
-      border: none;
-      padding: 10px 14px;
-      border-radius: 10px;
-      cursor: pointer;
-      margin-right: 8px;
-      margin-top: 8px;
+    .error-box {
+      background: #fee2e2;
+      color: #991b1b;
+      padding: 16px;
+      border-radius: 14px;
       font-weight: bold;
+      margin-top: 20px;
     }
 
-    .small-btn:hover {
-      background: #1d4ed8;
+    .status-box {
+      padding: 16px;
+      border-radius: 14px;
+      font-weight: bold;
+      font-size: 18px;
+      margin-bottom: 18px;
     }
 
-    .speak-btn {
-      display: inline-block;
-      margin-bottom: 16px;
+    .status-success {
+      background: #dff5e6;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+
+    .status-danger {
+      background: #fde2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+
+    .result-card {
+      background: #f8fafc;
+      border: 1px solid #dbe4ee;
+      border-radius: 18px;
+      padding: 22px;
+      margin-top: 16px;
+    }
+
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 14px 0;
+      border-bottom: 1px solid #e5e7eb;
+      flex-wrap: wrap;
+    }
+
+    .result-row:last-child {
+      border-bottom: none;
+    }
+
+    .result-label {
+      font-weight: bold;
+      color: #111827;
+      min-width: 160px;
+    }
+
+    .result-value {
+      color: #1f2937;
+      font-weight: 600;
+      flex: 1;
+      text-align: right;
+      word-break: break-word;
+    }
+
+    .voice-mini {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 12px;
+      background: #eef6ff;
+      border: 1px solid #cfe3ff;
+      color: #1e3a8a;
+      font-size: 15px;
+      display: none; /* hidden text area, only for speech */
+    }
+
+    .action-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    .loading-box {
+      display: none;
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 12px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-weight: bold;
+      border: 1px solid #bfdbfe;
     }
 
     @media (max-width: 900px) {
       .grid {
         grid-template-columns: 1fr;
       }
-      .btn {
-        width: 100%;
-      }
-      .small-btn {
+
+      .btn, .small-btn {
         width: 100%;
         margin-right: 0;
+      }
+
+      .result-row {
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .result-value {
+        text-align: left;
+      }
+
+      .action-row {
+        flex-direction: column;
       }
     }
   </style>
@@ -206,10 +246,6 @@
   <div class="container">
 
     {% if result %}
-      <div class="speak-btn">
-        <button class="btn" onclick="readSummary()">🗣️ Read Summary Aloud</button>
-      </div>
-
       <h1>Analysis Result</h1>
 
       {% if result.error %}
@@ -217,71 +253,67 @@
       {% else %}
 
         {% if result.matched %}
-          <div class="success">✅ Prescription and medicine appear to match</div>
+          <div class="status-box status-success">✅ Prescription and medicine match</div>
         {% else %}
-          <div class="danger">⚠️ Prescription and medicine may not match</div>
+          <div class="status-box status-danger">⚠️ Prescription and medicine may not match</div>
         {% endif %}
 
-        <div class="section">
-          <div><strong>Matched Prescription:</strong> {{ result.matched_prescription }}</div>
-          <div><strong>Matched Medicine:</strong> {{ result.matched_medicine }}</div>
-          <div><strong>Similarity:</strong> {{ result.similarity }}%</div>
-        </div>
-
-        <div class="section">
-          <div><strong>Expiry Date:</strong>
-            {% if result.expiry_found %}
-              {{ result.expiry_found }}
-            {% else %}
-              Not detected
-            {% endif %}
+        <div class="result-card">
+          <div class="result-row">
+            <div class="result-label">Medicine Name</div>
+            <div class="result-value">{{ result.matched_medicine|default:"Not found" }}</div>
           </div>
 
-          {% if result.expiry_found %}
-            <span class="tag tag-green">Expiry check passed</span>
-            {% if result.expired %}
-              <div class="warn-box">⚠️ Medicine appears expired</div>
-            {% else %}
-              <div class="ok-box">✅ Medicine does not appear expired</div>
-            {% endif %}
-          {% else %}
-            <span class="tag tag-blue">Expiry uncertain</span>
-            <div style="margin-top:12px;">Expiry could not be fully verified from the image.</div>
-          {% endif %}
+          <div class="result-row">
+            <div class="result-label">Expiry Date</div>
+            <div class="result-value">
+              {% if result.expiry_found %}
+                {{ result.expiry_found }}
+              {% else %}
+                Not found
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="result-row">
+            <div class="result-label">Dosage</div>
+            <div class="result-value">{{ result.dosage_text|default:"Not found" }}</div>
+          </div>
+
+          <div class="result-row">
+            <div class="result-label">Duration</div>
+            <div class="result-value">{{ result.days|default:"5" }} days</div>
+          </div>
         </div>
 
-        <div class="section">
-          <h3>Dosage Instructions:</h3>
-          {% if result.dosage %}
-            <ul>
-              {% for d in result.dosage %}
-                <li>{{ d }}</li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <div>No clear dosage instructions found.</div>
-          {% endif %}
+        <!-- Hidden short voice text only -->
+        <div id="voiceSummaryText" class="voice-mini">
+          {{ result.voice_message }}
         </div>
 
-        <div class="section">
-          <h3>Voice Summary:</h3>
-          <div id="voiceSummaryText">{{ result.voice_message }}</div>
+        <div class="action-row">
+          <button class="small-btn" type="button" onclick="readSummary()">🔊 Read Summary</button>
+
+          {% if result.servam_audio_url %}
+            <audio controls autoplay style="width: 100%; max-width: 380px;">
+              <source src="{{ result.servam_audio_url }}" type="audio/mpeg">
+              Your browser does not support audio.
+            </audio>
+          {% endif %}
+
+          <a href="/" style="text-decoration:none;">
+            <button class="btn" type="button">⬅ Analyze Another</button>
+          </a>
         </div>
 
       {% endif %}
 
-      <div style="margin-top:20px;">
-        <a href="/" style="text-decoration:none;">
-          <button class="btn" type="button">⬅ Analyze Another</button>
-        </a>
-      </div>
-
     {% else %}
 
       <h1>Medicine Safety Checker</h1>
-      <p>Upload or capture a prescription image and a medicine strip image to verify medicine safety.</p>
+      <p>Upload or capture a prescription image and a medicine strip image to verify medicine details.</p>
 
-      <form method="post" enctype="multipart/form-data">
+      <form method="post" enctype="multipart/form-data" id="analyzeForm">
         {% csrf_token %}
 
         <div class="grid">
@@ -316,7 +348,8 @@
           </div>
         </div>
 
-        <button type="submit" class="btn">🔍 Analyze Medicine Safety</button>
+        <button type="submit" class="btn" id="analyzeBtn">🔍 Analyze</button>
+        <div class="loading-box" id="loadingBox">⏳ Analyzing... please wait</div>
       </form>
 
     {% endif %}
@@ -345,6 +378,12 @@
     async function startCamera(type) {
       try {
         const video = document.getElementById(type + "Video");
+        const preview = document.getElementById(type + "Preview");
+
+        if (preview) {
+          preview.style.display = "none";
+        }
+
         video.style.display = "block";
 
         if (cameraStreams[type]) {
@@ -352,14 +391,18 @@
         }
 
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
+          video: {
+            facingMode: { ideal: "environment" }
+          },
           audio: false
         });
 
         cameraStreams[type] = stream;
         video.srcObject = stream;
+        await video.play();
+
       } catch (error) {
-        alert("Unable to access camera. Please allow permission.");
+        alert("Unable to access camera. Please allow camera permission.");
         console.error(error);
       }
     }
@@ -370,7 +413,7 @@
       const hiddenInput = document.getElementById(type + "CameraData");
       const preview = document.getElementById(type + "Preview");
 
-      if (!video.srcObject) {
+      if (!video.srcObject || !video.videoWidth || !video.videoHeight) {
         alert("Please open camera first.");
         return;
       }
@@ -403,11 +446,39 @@
       if (!text) return;
 
       window.speechSynthesis.cancel();
+
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1;
       utterance.pitch = 1;
       utterance.lang = "en-IN";
+
       window.speechSynthesis.speak(utterance);
+    }
+
+    window.addEventListener("load", function () {
+      const summaryElement = document.getElementById("voiceSummaryText");
+      if (summaryElement && summaryElement.innerText.trim()) {
+        setTimeout(() => {
+          readSummary();
+        }, 600);
+      }
+    });
+
+    const analyzeForm = document.getElementById("analyzeForm");
+    if (analyzeForm) {
+      analyzeForm.addEventListener("submit", function () {
+        const btn = document.getElementById("analyzeBtn");
+        const loading = document.getElementById("loadingBox");
+
+        if (btn) {
+          btn.disabled = true;
+          btn.innerText = "⏳ Analyzing...";
+        }
+
+        if (loading) {
+          loading.style.display = "block";
+        }
+      });
     }
 
     window.addEventListener("beforeunload", function () {
