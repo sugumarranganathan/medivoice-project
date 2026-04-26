@@ -186,7 +186,7 @@ def extract_text_from_image(image_path):
 
 
 # ==========================================
-# MEDICINE MATCHING (SMART)
+# MEDICINE MATCHING
 # ==========================================
 
 def extract_prescription_medicine_candidates(text):
@@ -194,14 +194,13 @@ def extract_prescription_medicine_candidates(text):
         return []
 
     candidates = []
-
     lines = text.splitlines()
+
     for line in lines:
         line_clean = line.strip()
         if not line_clean:
             continue
 
-        # likely medicine lines
         if re.search(r'\b(tab|cap|syr|tablet|capsule|inj|drop)\b', line_clean, re.I):
             words = re.findall(r'[A-Za-z0-9]+', line_clean)
             filtered = []
@@ -219,12 +218,10 @@ def extract_prescription_medicine_candidates(text):
             if filtered:
                 candidates.extend(filtered)
 
-    # fallback: all possible words
     if not candidates:
         words = re.findall(r'[A-Za-z]{4,}', text)
         candidates = words
 
-    # unique
     unique = []
     seen = set()
     for c in candidates:
@@ -243,8 +240,7 @@ def extract_medicine_brand_candidates(text):
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     candidates = []
 
-    # first 8 lines usually contain brand name
-    for line in lines[:8]:
+    for line in lines[:10]:
         words = re.findall(r'[A-Za-z0-9]+', line)
         for w in words:
             nw = normalize_word(w)
@@ -272,8 +268,6 @@ def fuzzy_word_match(a, b):
     if na == nb:
         return 1.0
 
-    # remove common OCR confusion endings
-    # gudcet vs gudcef
     if len(na) >= 5 and len(nb) >= 5:
         if na[:-1] == nb[:-1]:
             return 0.95
@@ -299,7 +293,6 @@ def find_best_medicine_match(prescription_text, medicine_text):
                 best_p = p
                 best_m = m
 
-    # also compare full text fallback
     p_norm = normalize_text(prescription_text)
     m_norm = normalize_text(medicine_text)
     full_score = 0.0
@@ -307,7 +300,6 @@ def find_best_medicine_match(prescription_text, medicine_text):
         full_score = SequenceMatcher(None, p_norm[:400], m_norm[:400]).ratio()
 
     final_score = max(best_score, full_score * 0.4)
-
     matched = final_score >= 0.72
 
     return {
@@ -368,63 +360,93 @@ def is_expired(expiry_str):
 
 
 # ==========================================
-# DOSAGE
+# DOSAGE (ONLY MATCHED MEDICINE LINE)
 # ==========================================
 
-def extract_dosage_info(text):
+def find_prescription_line_for_medicine(prescription_text, matched_name):
+    if not prescription_text or not matched_name or matched_name == "Not found":
+        return None
+
+    lines = [line.strip() for line in prescription_text.splitlines() if line.strip()]
+    target = normalize_word(matched_name)
+
+    best_line = None
+    best_score = 0.0
+
+    for line in lines:
+        if not re.search(r'\b(tab|cap|syr|tablet|capsule|inj|drop)\b', line, re.I):
+            continue
+
+        words = re.findall(r'[A-Za-z0-9]+', line)
+        for w in words:
+            score = fuzzy_word_match(w, target)
+            if score > best_score:
+                best_score = score
+                best_line = line
+
+    if best_score >= 0.70:
+        return best_line
+
+    return None
+
+
+def extract_days_from_text(text):
     if not text:
-        return []
+        return None
 
-    results = []
-    results += re.findall(r"\b\d+\s*-\s*\d+\s*-\s*\d+\b", text)
-    results += re.findall(r"\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b", text, re.I)
-    results += re.findall(r"\bx\s*\d+\s*days?\b", text, re.I)
+    match = re.search(r'\b(?:x|for)?\s*(\d+)\s*days?\b', text, re.I)
+    if match:
+        return int(match.group(1))
 
-    cleaned = []
-    seen = set()
-    for item in results:
-        item = re.sub(r"\s+", " ", item).strip()
-        if item not in seen:
-            seen.add(item)
-            cleaned.append(item)
-
-    return cleaned
+    return None
 
 
-# ==========================================
-# VOICE MESSAGE
-# ==========================================
+def extract_dosage_pattern_from_line(line):
+    if not line:
+        return None
 
-def build_voice_message(result):
-    if result.get("error"):
-        return "Unable to analyze the medicine safely. Please try again with clearer images."
+    # Match 1-0-1 or 1 - 0 - 1
+    match = re.search(r'\b(\d+)\s*-\s*(\d+)\s*-\s*(\d+)\b', line)
+    if match:
+        return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
+    return None
+
+
+def dosage_to_text(dosage_tuple):
+    if not dosage_tuple:
+        return "Not found"
+
+    morning, afternoon, night = dosage_tuple
     parts = []
 
-    if result.get("matched"):
-        parts.append(
-            f"Good news. The prescription medicine {result.get('matched_prescription')} matches the strip medicine {result.get('matched_medicine')}."
-        )
-    else:
-        parts.append("Warning. The prescription and medicine may not match.")
+    if morning > 0:
+        parts.append(f"Morning: {morning}")
+    if afternoon > 0:
+        parts.append(f"Afternoon: {afternoon}")
+    if night > 0:
+        parts.append(f"Night: {night}")
 
-    if result.get("expiry_found"):
-        if result.get("expired") is True:
-            parts.append(f"The medicine appears expired. Expiry date detected as {result['expiry_found']}.")
-        elif result.get("expired") is False:
-            parts.append(f"The medicine does not appear expired. Expiry date detected as {result['expiry_found']}.")
-        else:
-            parts.append(f"Expiry date detected as {result['expiry_found']}, but it could not be fully verified.")
-    else:
-        parts.append("Expiry date could not be detected clearly.")
+    if not parts:
+        return "No dose"
 
-    if result.get("dosage"):
-        parts.append(f"Dosage instructions found: {', '.join(result['dosage'])}.")
-    else:
-        parts.append("No clear dosage instructions were found.")
+    return ", ".join(parts)
 
-    parts.append("Please confirm with a doctor or pharmacist before consuming.")
-    return " ".join(parts)
+
+# ==========================================
+# SHORT VOICE MESSAGE
+# ==========================================
+
+def build_short_voice_message(result):
+    if result.get("error"):
+        return "Unable to analyze."
+
+    medicine = result.get("matched_medicine") or "Medicine"
+    expiry = result.get("expiry_found") or "Not found"
+    dosage_text = result.get("dosage_text") or "Not found"
+    days = result.get("days") or 5
+
+    return f"Medicine {medicine}. Expiry {expiry}. {dosage_text}. For {days} days."
 
 
 # ==========================================
@@ -510,12 +532,28 @@ def home(request):
             prescription_text, prescription_debug = extract_text_from_image(prescription_path)
             medicine_text, medicine_debug = extract_text_from_image(medicine_path)
 
-            # Smart medicine matching
+            # Match medicine
             match_info = find_best_medicine_match(prescription_text, medicine_text)
 
+            # Expiry
             expiry_found = extract_expiry_date(medicine_text)
             expired = is_expired(expiry_found)
-            dosage = extract_dosage_info(prescription_text)
+
+            # Find ONLY matched medicine line
+            matched_line = find_prescription_line_for_medicine(
+                prescription_text,
+                match_info["matched_prescription"]
+            )
+
+            dosage_tuple = extract_dosage_pattern_from_line(matched_line)
+            dosage_text = dosage_to_text(dosage_tuple)
+
+            # Days from matched line first, else full prescription
+            days = extract_days_from_text(matched_line) if matched_line else None
+            if not days:
+                days = extract_days_from_text(prescription_text)
+            if not days:
+                days = 5
 
             result = {
                 "error": None,
@@ -529,12 +567,15 @@ def home(request):
                 "matched": match_info["matched"],
                 "expiry_found": expiry_found,
                 "expired": expired,
-                "dosage": dosage,
                 "prescription_candidates": match_info["prescription_candidates"],
                 "medicine_candidates": match_info["medicine_candidates"],
+                "matched_line": matched_line,
+                "dosage_tuple": dosage_tuple,
+                "dosage_text": dosage_text,
+                "days": days,
             }
 
-            result["voice_message"] = build_voice_message(result)
+            result["voice_message"] = build_short_voice_message(result)
             result["servam_audio_url"] = generate_servam_tts(result["voice_message"])
 
         except Exception as e:
@@ -550,10 +591,13 @@ def home(request):
                 "matched": False,
                 "expiry_found": None,
                 "expired": None,
-                "dosage": [],
                 "prescription_candidates": [],
                 "medicine_candidates": [],
-                "voice_message": "Unable to analyze the medicine safely. Please try again.",
+                "matched_line": None,
+                "dosage_tuple": None,
+                "dosage_text": "Not found",
+                "days": 5,
+                "voice_message": "Unable to analyze.",
                 "servam_audio_url": None,
             }
 
