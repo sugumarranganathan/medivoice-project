@@ -456,6 +456,7 @@
     let currentStep = "start";
     let recognition = null;
     let isListening = false;
+    let awaitingClearAllCommand = false;
 
     function updateStatus(msg) {
       statusBox.innerText = msg;
@@ -523,14 +524,42 @@
 
       recognition.onstart = () => {
         isListening = true;
-        updateStatus("Listening... Say Yes or No.");
-        updateVoicePrompt("Listening... Say Yes or No.");
+
+        if (awaitingClearAllCommand) {
+          updateStatus("Listening... Say Clear all.");
+          updateVoicePrompt("Listening... Say Clear all.");
+        } else {
+          updateStatus("Listening... Say Yes or No.");
+          updateVoicePrompt("Listening... Say Yes or No.");
+        }
       };
 
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript.toLowerCase().trim();
         isListening = false;
 
+        // Clear all voice command mode
+        if (awaitingClearAllCommand) {
+          if (
+            transcript.includes("clear all") ||
+            transcript.includes("clear") ||
+            transcript.includes("clier all") ||
+            transcript.includes("clearal")
+          ) {
+            awaitingClearAllCommand = false;
+            speak("Clearing all data.", true, () => {
+              clearAllData();
+            });
+            return;
+          } else {
+            speak("Please say Clear all to clear all data.", true, () => {
+              setTimeout(() => startClearAllListening(), 800);
+            });
+            return;
+          }
+        }
+
+        // Normal yes/no mode
         if (transcript.includes("yes")) {
           handleYes();
         } else if (transcript.includes("no")) {
@@ -544,7 +573,11 @@
 
       recognition.onerror = () => {
         isListening = false;
-        updateStatus("Voice recognition failed. Use Yes or No buttons.");
+        if (awaitingClearAllCommand) {
+          updateStatus("Voice recognition failed. You can say Clear all again or click Clear All.");
+        } else {
+          updateStatus("Voice recognition failed. Use Yes / No buttons.");
+        }
       };
 
       recognition.onend = () => {
@@ -555,6 +588,8 @@
     }
 
     function startListening() {
+      awaitingClearAllCommand = false;
+
       if (!recognition) {
         const ok = setupSpeechRecognition();
         if (!ok) return;
@@ -572,6 +607,24 @@
           } catch (e) {}
         }, 900);
       });
+    }
+
+    function startClearAllListening() {
+      if (!recognition) {
+        const ok = setupSpeechRecognition();
+        if (!ok) return;
+      }
+
+      awaitingClearAllCommand = true;
+      updateStatus("Say Clear all to clear all data and ready for new.");
+      updateVoicePrompt("Say Clear all to clear all data and ready for new.");
+
+      setTimeout(() => {
+        try {
+          if (isListening) return;
+          recognition.start();
+        } catch (e) {}
+      }, 500);
     }
 
     async function openCamera(target) {
@@ -797,6 +850,7 @@
 
       currentTarget = null;
       currentStep = "start";
+      awaitingClearAllCommand = false;
 
       prescriptionInput.value = "";
       medicineInput.value = "";
@@ -818,6 +872,8 @@
 
       updateStatus("All details cleared. Ready for new scan.");
       updateVoicePrompt("All details cleared. Ready for new scan.");
+
+      speak("All details cleared. Ready for new scan.", true);
     }
 
     // Button actions
@@ -827,11 +883,13 @@
 
     openPrescriptionCameraBtn.addEventListener("click", () => {
       currentStep = "opening_first";
+      awaitingClearAllCommand = false;
       openCamera("prescription");
     });
 
     openMedicineCameraBtn.addEventListener("click", () => {
       currentStep = "opening_second";
+      awaitingClearAllCommand = false;
       openCamera("medicine");
     });
 
@@ -881,7 +939,15 @@
         setTimeout(() => {
           speak("Analysis completed. Reading result now.", true, () => {
             setTimeout(() => {
-              speak(voiceResultText.innerText, true);
+              speak(voiceResultText.innerText, true, () => {
+                setTimeout(() => {
+                  speak("Say Clear all to clear all datas and ready for new.", true, () => {
+                    setTimeout(() => {
+                      startClearAllListening();
+                    }, 700);
+                  });
+                }, 700);
+              });
             }, 700);
           });
         }, 1500);
