@@ -318,7 +318,7 @@
 
     <div class="voice-panel">
       <h3>Voice Guided Start</h3>
-      <div id="voicePromptText">When page opens, app will ask: “Do you want to start? Say Yes or No.”</div>
+      <div id="voicePromptText">Page will ask and then open first camera after Yes.</div>
       <div class="voice-buttons">
         <button type="button" class="yes-btn" id="yesBtn">Yes</button>
         <button type="button" class="no-btn" id="noBtn">No</button>
@@ -332,23 +332,19 @@
       <div class="upload-grid">
         <div class="upload-box">
           <h3>Prescription Image</h3>
-          <!-- IMPORTANT: name must match views.py -->
           <input type="file" id="prescriptionInput" name="prescription_image" accept="image/*" />
           <input type="hidden" id="prescriptionCameraData" name="prescription_camera_data" />
           <div class="btn-row">
             <button type="button" class="blue-btn" id="openPrescriptionCameraBtn">Open Camera</button>
-            <button type="button" class="orange-btn" id="capturePrescriptionBtn">Capture</button>
           </div>
         </div>
 
         <div class="upload-box">
           <h3>Medicine Image</h3>
-          <!-- IMPORTANT: name must match views.py -->
           <input type="file" id="medicineInput" name="medicine_image" accept="image/*" />
           <input type="hidden" id="medicineCameraData" name="medicine_camera_data" />
           <div class="btn-row">
             <button type="button" class="blue-btn" id="openMedicineCameraBtn">Open Camera</button>
-            <button type="button" class="orange-btn" id="captureMedicineBtn">Capture</button>
           </div>
         </div>
       </div>
@@ -383,7 +379,7 @@
     </div>
 
     <div class="status-box" id="statusBox">
-      Ready. Waiting for Yes / No.
+      Ready.
     </div>
 
     <div class="loading" id="loadingText">Analyzing... Please wait...</div>
@@ -397,15 +393,15 @@
         <h2>Result</h2>
         <div class="result-item">
           <span class="result-label">Medicine name:</span>
-          <span id="medicineNameText">{{ result.medicine_name }}</span>
+          <span>{{ result.medicine_name }}</span>
         </div>
         <div class="result-item">
           <span class="result-label">Expiry date:</span>
-          <span id="expiryDateText">{{ result.expiry_date }}</span>
+          <span>{{ result.expiry_date }}</span>
         </div>
         <div class="result-item">
           <span class="result-label">Dosage:</span>
-          <span id="dosageText">{{ result.dosage_text }}</span>
+          <span>{{ result.dosage_text }}</span>
         </div>
 
         <div id="voiceResultText" style="display:none;">
@@ -425,17 +421,13 @@
   <script>
     const prescriptionInput = document.getElementById("prescriptionInput");
     const medicineInput = document.getElementById("medicineInput");
-
     const prescriptionCameraData = document.getElementById("prescriptionCameraData");
     const medicineCameraData = document.getElementById("medicineCameraData");
-
     const prescriptionPreview = document.getElementById("prescriptionPreview");
     const medicinePreview = document.getElementById("medicinePreview");
 
     const openPrescriptionCameraBtn = document.getElementById("openPrescriptionCameraBtn");
-    const capturePrescriptionBtn = document.getElementById("capturePrescriptionBtn");
     const openMedicineCameraBtn = document.getElementById("openMedicineCameraBtn");
-    const captureMedicineBtn = document.getElementById("captureMedicineBtn");
 
     const uploadForm = document.getElementById("uploadForm");
     const analyzeBtn = document.getElementById("analyzeBtn");
@@ -461,7 +453,7 @@
     let currentStream = null;
     let currentTarget = null;
     let countdownInterval = null;
-    let currentStep = "start"; // start, wait_second_confirm, done
+    let currentStep = "start";
     let recognition = null;
     let isListening = false;
 
@@ -476,38 +468,44 @@
 
     function speak(text, priority = false, callback = null) {
       try {
-        if (priority) {
-          window.speechSynthesis.cancel();
-        }
+        if (priority) window.speechSynthesis.cancel();
 
         const utter = new SpeechSynthesisUtterance(text);
         utter.rate = 0.95;
         utter.pitch = 1;
         utter.volume = 1;
 
-        utter.onend = function () {
+        utter.onend = function() {
           if (callback) callback();
         };
 
         window.speechSynthesis.speak(utter);
       } catch (e) {
-        console.log("Speech failed:", e);
         if (callback) callback();
       }
     }
 
     function stopSpeaking() {
-      try {
-        window.speechSynthesis.cancel();
-      } catch (e) {}
+      try { window.speechSynthesis.cancel(); } catch (e) {}
     }
 
-    function previewImage(imgEl, file) {
+    function stopRecognition() {
+      try {
+        if (recognition && isListening) recognition.stop();
+      } catch (e) {}
+      isListening = false;
+    }
+
+    function previewImage(imgEl, dataOrFile, isDataUrl = false) {
+      if (isDataUrl) {
+        imgEl.src = dataOrFile;
+        return;
+      }
       const reader = new FileReader();
       reader.onload = function(e) {
         imgEl.src = e.target.result;
       };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(dataOrFile);
     }
 
     function setupSpeechRecognition() {
@@ -525,8 +523,8 @@
 
       recognition.onstart = () => {
         isListening = true;
-        updateStatus("Listening... Please say Yes or No.");
-        updateVoicePrompt("Listening... Please say Yes or No.");
+        updateStatus("Listening... Say Yes or No.");
+        updateVoicePrompt("Listening... Say Yes or No.");
       };
 
       recognition.onresult = (event) => {
@@ -539,14 +537,14 @@
           handleNo();
         } else {
           speak("I did not understand. Please say Yes or No.", true, () => {
-            setTimeout(() => startListening(), 500);
+            setTimeout(() => startListening(), 700);
           });
         }
       };
 
       recognition.onerror = () => {
         isListening = false;
-        updateStatus("Voice recognition failed. Use Yes / No buttons.");
+        updateStatus("Voice recognition failed. Use Yes or No buttons.");
       };
 
       recognition.onend = () => {
@@ -565,41 +563,42 @@
       try {
         if (isListening) return;
         recognition.start();
-      } catch (e) {
-        console.log("Recognition start failed:", e);
-      }
+      } catch (e) {}
     }
 
     async function openCamera(target) {
       try {
+        stopRecognition();
+        stopSpeaking();
         stopCamera();
 
         currentTarget = target;
         cameraSection.classList.add("active");
 
         cameraTitle.innerText = target === "prescription"
-          ? "Prescription Camera (Auto capture in 10 seconds)"
-          : "Medicine Camera (Auto capture in 10 seconds)";
+          ? "Prescription Camera (Auto capture in 8 seconds)"
+          : "Medicine Camera (Auto capture in 8 seconds)";
 
         updateStatus(target === "prescription"
           ? "Opening prescription camera..."
           : "Opening medicine camera...");
 
-        speak(target === "prescription"
-          ? "Opening prescription camera. Please hold the prescription steady. Auto capture in 10 seconds."
-          : "Opening medicine camera. Please hold the medicine steady. Auto capture in 10 seconds.",
-          true
-        );
-
         currentStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: false
         });
 
         video.srcObject = currentStream;
         await video.play();
 
-        startCountdownAndAutoCapture(10);
+        setTimeout(() => {
+          startCountdownAndAutoCapture(8);
+        }, 500);
+
       } catch (error) {
         console.error("Camera open failed:", error);
         updateStatus("Camera access failed. Please allow camera permission and try again.");
@@ -637,26 +636,22 @@
       if (currentTarget === "prescription") {
         prescriptionCameraData.value = dataUrl;
         prescriptionInput.value = "";
-        prescriptionPreview.src = dataUrl;
+        previewImage(prescriptionPreview, dataUrl, true);
 
-        updateStatus("Prescription image captured successfully.");
-        speak("Prescription image captured successfully.", true);
-
+        updateStatus("Prescription captured successfully.");
         stopCamera();
         cameraSection.classList.remove("active");
 
         setTimeout(() => {
           askSecondCamera();
-        }, 800);
+        }, 1200);
 
-      } else {
+      } else if (currentTarget === "medicine") {
         medicineCameraData.value = dataUrl;
         medicineInput.value = "";
-        medicinePreview.src = dataUrl;
+        previewImage(medicinePreview, dataUrl, true);
 
-        updateStatus("Medicine image captured successfully.");
-        speak("Medicine image captured successfully.", true);
-
+        updateStatus("Medicine captured successfully.");
         stopCamera();
         cameraSection.classList.remove("active");
 
@@ -677,15 +672,11 @@
 
         if (timeLeft > 0) {
           countdownText.innerText = `Capturing in ${timeLeft}...`;
-
-          if (timeLeft === 5) speak("5 seconds remaining.");
-          if (timeLeft === 3) speak("3 seconds remaining.");
-          if (timeLeft === 1) speak("1 second remaining.");
         } else {
           clearInterval(countdownInterval);
           countdownInterval = null;
           countdownText.innerText = "Capturing now...";
-          speak("Capturing now.", true);
+
           setTimeout(() => {
             captureCurrentFrame();
           }, 400);
@@ -697,10 +688,11 @@
       currentStep = "start";
       updateStatus("Do you want to start? Say Yes or No.");
       updateVoicePrompt("Do you want to start? Say Yes or No.");
+
       speak("Do you want to start? Please say Yes or No.", true, () => {
         setTimeout(() => {
           startListening();
-        }, 600);
+        }, 800);
       });
     }
 
@@ -708,39 +700,45 @@
       currentStep = "wait_second_confirm";
       updateStatus("Do you want to open second camera? Say Yes or No.");
       updateVoicePrompt("Do you want to open second camera? Say Yes or No.");
+
       speak("Do you want to open second camera? Please say Yes or No.", true, () => {
         setTimeout(() => {
           startListening();
-        }, 600);
+        }, 1000);
       });
     }
 
     function handleYes() {
+      stopRecognition();
+      stopSpeaking();
+
       if (currentStep === "start") {
         currentStep = "opening_first";
         updateStatus("Yes received. Opening first camera.");
         updateVoicePrompt("Yes received. Opening first camera.");
-        speak("Yes received. Opening first camera now.", true, () => {
-          setTimeout(() => {
-            openCamera("prescription");
-          }, 400);
-        });
+
+        setTimeout(() => {
+          openCamera("prescription");
+        }, 700);
+
       } else if (currentStep === "wait_second_confirm") {
         currentStep = "opening_second";
         updateStatus("Yes received. Opening second camera.");
         updateVoicePrompt("Yes received. Opening second camera.");
-        speak("Yes received. Opening second camera now.", true, () => {
-          setTimeout(() => {
-            openCamera("medicine");
-          }, 400);
-        });
+
+        setTimeout(() => {
+          openCamera("medicine");
+        }, 1000);
       }
     }
 
     function handleNo() {
-      updateStatus("Process cancelled. You can start later.");
-      updateVoicePrompt("Process cancelled. You can start later.");
-      speak("Okay. Process cancelled. You can start later.", true);
+      stopRecognition();
+      stopSpeaking();
+
+      updateStatus("Process cancelled.");
+      updateVoicePrompt("Process cancelled.");
+      speak("Okay. Process cancelled.", true);
     }
 
     function hasPrescription() {
@@ -761,15 +759,13 @@
       currentStep = "done";
       updateStatus("Both images captured. Starting analysis...");
       updateVoicePrompt("Both images captured. Starting analysis...");
-      speak("Both images captured. Starting analysis now.", true);
-
       loadingText.classList.add("active");
       analyzeBtn.disabled = true;
       analyzeBtn.innerText = "Analyzing...";
 
       setTimeout(() => {
         uploadForm.submit();
-      }, 900);
+      }, 1000);
     }
 
     function safeAutoSubmitAnalyze() {
@@ -790,6 +786,7 @@
 
     function clearAllData() {
       stopSpeaking();
+      stopRecognition();
       stopCamera();
 
       currentTarget = null;
@@ -797,7 +794,6 @@
 
       prescriptionInput.value = "";
       medicineInput.value = "";
-
       prescriptionCameraData.value = "";
       medicineCameraData.value = "";
 
@@ -805,7 +801,6 @@
       medicinePreview.src = "";
 
       loadingText.classList.remove("active");
-
       analyzeBtn.disabled = false;
       analyzeBtn.innerText = "Analyze";
 
@@ -817,10 +812,9 @@
 
       updateStatus("All details cleared. Ready for new scan.");
       updateVoicePrompt("All details cleared. Ready for new scan.");
-      speak("All details cleared. Ready for new scan.", true);
     }
 
-    // Buttons
+    // Button actions
     yesBtn.addEventListener("click", handleYes);
     noBtn.addEventListener("click", handleNo);
     listenBtn.addEventListener("click", startListening);
@@ -830,19 +824,9 @@
       openCamera("prescription");
     });
 
-    capturePrescriptionBtn.addEventListener("click", async () => {
-      currentStep = "opening_first";
-      await openCamera("prescription");
-    });
-
     openMedicineCameraBtn.addEventListener("click", () => {
       currentStep = "opening_second";
       openCamera("medicine");
-    });
-
-    captureMedicineBtn.addEventListener("click", async () => {
-      currentStep = "opening_second";
-      await openCamera("medicine");
     });
 
     manualCaptureBtn.addEventListener("click", () => {
@@ -853,7 +837,6 @@
       stopCamera();
       cameraSection.classList.remove("active");
       updateStatus("Camera stopped.");
-      speak("Camera stopped.", true);
     });
 
     clearAllBtn.addEventListener("click", clearAllData);
@@ -889,7 +872,7 @@
     window.addEventListener("load", () => {
       setTimeout(() => {
         askStartQuestion();
-      }, 1200);
+      }, 1000);
 
       const voiceResultText = document.getElementById("voiceResultText");
       if (voiceResultText && voiceResultText.innerText.trim()) {
@@ -897,7 +880,7 @@
           speak("Analysis completed. Reading result now.", true, () => {
             setTimeout(() => {
               speak(voiceResultText.innerText, true);
-            }, 800);
+            }, 700);
           });
         }, 1500);
       }
