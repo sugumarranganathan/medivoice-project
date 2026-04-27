@@ -527,7 +527,7 @@
         isListening = true;
 
         if (awaitingModeSelection) {
-          updateStatus("Listening... Say Voice guide or Manual upload.");
+          // DO NOT show mode selection text in status box
           updateVoicePrompt("Listening... Say Voice guide or Manual upload.");
         } else if (awaitingClearAllCommand) {
           updateStatus("Listening... Say Clear all.");
@@ -620,7 +620,8 @@
       recognition.onerror = () => {
         isListening = false;
         if (awaitingModeSelection) {
-          updateStatus("Voice recognition failed. Click Start Voice Listening again.");
+          // DO NOT show mode selection error in status box
+          updateVoicePrompt("Voice recognition failed. Click Start Voice Listening again.");
         } else if (awaitingClearAllCommand) {
           updateStatus("Voice recognition failed. You can say Clear all again or click Clear All.");
         } else {
@@ -648,7 +649,7 @@
       awaitingClearAllCommand = false;
       currentStep = "mode_select";
 
-      updateStatus("Do you want Voice Guide or Manual upload?");
+      // DO NOT show this in status box
       updateVoicePrompt("Do you want Voice Guide or Manual upload?");
 
       speak("Do you want Voice Guide or Manual upload?", true, () => {
@@ -946,7 +947,8 @@
 
       cameraSection.classList.remove("active");
 
-      updateStatus("All details cleared. Ready for new scan.");
+      // Keep status clean, do not show mode selection text
+      updateStatus("Ready.");
       updateVoicePrompt("All details cleared. Ready for new scan.");
 
       speak("All details cleared. Ready for new scan.", true, () => {
@@ -1016,11 +1018,11 @@
     });
 
     window.addEventListener("load", () => {
-      setTimeout(() => {
-        askModeSelection();
-      }, 1000);
+      // Keep screen clean on load
+      updateStatus("Ready.");
 
       const voiceResultText = document.getElementById("voiceResultText");
+
       if (voiceResultText && voiceResultText.innerText.trim()) {
         setTimeout(() => {
           speak("Analysis completed. Reading result now.", true, () => {
@@ -1037,6 +1039,10 @@
             }, 700);
           });
         }, 1500);
+      } else {
+        setTimeout(() => {
+          askModeSelection();
+        }, 1000);
       }
     });
   </script>
