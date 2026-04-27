@@ -318,7 +318,7 @@
 
     <div class="voice-panel">
       <h3>Voice Guided Start</h3>
-      <div id="voicePromptText">Click Start Voice Listening to begin.</div>
+      <div id="voicePromptText">App will ask Voice Guide or Manual upload.</div>
       <div class="voice-buttons">
         <button type="button" class="yes-btn" id="yesBtn">Yes</button>
         <button type="button" class="no-btn" id="noBtn">No</button>
@@ -453,10 +453,11 @@
     let currentStream = null;
     let currentTarget = null;
     let countdownInterval = null;
-    let currentStep = "start";
+    let currentStep = "mode_select";
     let recognition = null;
     let isListening = false;
     let awaitingClearAllCommand = false;
+    let awaitingModeSelection = false;
 
     function updateStatus(msg) {
       statusBox.innerText = msg;
@@ -512,8 +513,8 @@
     function setupSpeechRecognition() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        updateStatus("Voice recognition not supported. Use Yes / No buttons.");
-        updateVoicePrompt("Voice recognition not supported. Use Yes / No buttons.");
+        updateStatus("Voice recognition not supported. Use buttons and manual upload.");
+        updateVoicePrompt("Voice recognition not supported. Use buttons and manual upload.");
         return false;
       }
 
@@ -525,7 +526,10 @@
       recognition.onstart = () => {
         isListening = true;
 
-        if (awaitingClearAllCommand) {
+        if (awaitingModeSelection) {
+          updateStatus("Listening... Say Voice guide or Manual upload.");
+          updateVoicePrompt("Listening... Say Voice guide or Manual upload.");
+        } else if (awaitingClearAllCommand) {
           updateStatus("Listening... Say Clear all.");
           updateVoicePrompt("Listening... Say Clear all.");
         } else {
@@ -537,6 +541,41 @@
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript.toLowerCase().trim();
         isListening = false;
+
+        // Mode selection
+        if (awaitingModeSelection) {
+          if (
+            transcript.includes("voice guide") ||
+            transcript.includes("voice") ||
+            transcript.includes("guide")
+          ) {
+            awaitingModeSelection = false;
+            speak("Voice guide selected.", true, () => {
+              setTimeout(() => {
+                startVoiceGuidedFlow();
+              }, 700);
+            });
+            return;
+          }
+
+          if (
+            transcript.includes("manual upload") ||
+            transcript.includes("manual")
+          ) {
+            awaitingModeSelection = false;
+            updateStatus("Manual upload selected.");
+            updateVoicePrompt("Manual upload selected.");
+            speak("Ok, you will start manually to upload Prescription image and Medicine image.", true);
+            return;
+          }
+
+          speak("Please say Voice guide or Manual upload.", true, () => {
+            setTimeout(() => {
+              askModeSelection();
+            }, 700);
+          });
+          return;
+        }
 
         // Clear all voice command mode
         if (awaitingClearAllCommand) {
@@ -566,14 +605,23 @@
           handleNo();
         } else {
           speak("I did not understand. Please say Yes or No.", true, () => {
-            setTimeout(() => startListening(), 700);
+            setTimeout(() => {
+              if (currentStep === "start" || currentStep === "wait_second_confirm") {
+                try {
+                  if (isListening) return;
+                  recognition.start();
+                } catch (e) {}
+              }
+            }, 700);
           });
         }
       };
 
       recognition.onerror = () => {
         isListening = false;
-        if (awaitingClearAllCommand) {
+        if (awaitingModeSelection) {
+          updateStatus("Voice recognition failed. Click Start Voice Listening again.");
+        } else if (awaitingClearAllCommand) {
           updateStatus("Voice recognition failed. You can say Clear all again or click Clear All.");
         } else {
           updateStatus("Voice recognition failed. Use Yes / No buttons.");
@@ -587,15 +635,37 @@
       return true;
     }
 
-    function startListening() {
-      awaitingClearAllCommand = false;
-
+    function askModeSelection() {
       if (!recognition) {
         const ok = setupSpeechRecognition();
         if (!ok) return;
       }
 
+      stopRecognition();
+      stopSpeaking();
+
+      awaitingModeSelection = true;
+      awaitingClearAllCommand = false;
+      currentStep = "mode_select";
+
+      updateStatus("Do you want Voice Guide or Manual upload?");
+      updateVoicePrompt("Do you want Voice Guide or Manual upload?");
+
+      speak("Do you want Voice Guide or Manual upload?", true, () => {
+        setTimeout(() => {
+          try {
+            if (isListening) return;
+            recognition.start();
+          } catch (e) {}
+        }, 900);
+      });
+    }
+
+    function startVoiceGuidedFlow() {
+      awaitingModeSelection = false;
+      awaitingClearAllCommand = false;
       currentStep = "start";
+
       updateStatus("Do you want to open First camera for Prescription image, say yes or no?");
       updateVoicePrompt("Do you want to open First camera for Prescription image, say yes or no?");
 
@@ -609,6 +679,10 @@
       });
     }
 
+    function startListening() {
+      askModeSelection();
+    }
+
     function startClearAllListening() {
       if (!recognition) {
         const ok = setupSpeechRecognition();
@@ -616,6 +690,7 @@
       }
 
       awaitingClearAllCommand = true;
+      awaitingModeSelection = false;
       updateStatus("Say Clear all to clear all data and ready for new.");
       updateVoicePrompt("Say Clear all to clear all data and ready for new.");
 
@@ -849,8 +924,9 @@
       stopCamera();
 
       currentTarget = null;
-      currentStep = "start";
+      currentStep = "mode_select";
       awaitingClearAllCommand = false;
+      awaitingModeSelection = false;
 
       prescriptionInput.value = "";
       medicineInput.value = "";
@@ -873,7 +949,11 @@
       updateStatus("All details cleared. Ready for new scan.");
       updateVoicePrompt("All details cleared. Ready for new scan.");
 
-      speak("All details cleared. Ready for new scan.", true);
+      speak("All details cleared. Ready for new scan.", true, () => {
+        setTimeout(() => {
+          askModeSelection();
+        }, 900);
+      });
     }
 
     // Button actions
@@ -884,12 +964,14 @@
     openPrescriptionCameraBtn.addEventListener("click", () => {
       currentStep = "opening_first";
       awaitingClearAllCommand = false;
+      awaitingModeSelection = false;
       openCamera("prescription");
     });
 
     openMedicineCameraBtn.addEventListener("click", () => {
       currentStep = "opening_second";
       awaitingClearAllCommand = false;
+      awaitingModeSelection = false;
       openCamera("medicine");
     });
 
@@ -934,6 +1016,10 @@
     });
 
     window.addEventListener("load", () => {
+      setTimeout(() => {
+        askModeSelection();
+      }, 1000);
+
       const voiceResultText = document.getElementById("voiceResultText");
       if (voiceResultText && voiceResultText.innerText.trim()) {
         setTimeout(() => {
