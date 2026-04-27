@@ -1,433 +1,907 @@
-import os
-import re
-import base64
-import requests
-from io import BytesIO
-
-from PIL import Image
-from django.conf import settings
-from django.shortcuts import render
-from django.core.files.storage import default_storage
-
-
-# ==========================================
-# FILE SAVE HELPERS
-# ==========================================
-
-def save_uploaded_file(file_obj, folder="uploads"):
-    try:
-        file_name = default_storage.save(f"{folder}/{file_obj.name}", file_obj)
-        return os.path.join(settings.MEDIA_ROOT, file_name)
-    except Exception as e:
-        print("File save error:", e)
-        return None
-
-
-def save_base64_image(data_url, file_name="camera_capture.jpg", folder="uploads"):
-    try:
-        if not data_url or "," not in data_url:
-            return None
-
-        header, imgstr = data_url.split(",", 1)
-        ext = "jpg"
-
-        if "image/png" in header:
-            ext = "png"
-        elif "image/webp" in header:
-            ext = "webp"
-
-        final_name = f"{os.path.splitext(file_name)[0]}.{ext}"
-        binary_data = base64.b64decode(imgstr)
-
-        relative_path = f"{folder}/{final_name}"
-        saved_path = default_storage.save(relative_path, BytesIO(binary_data))
-
-        return os.path.join(settings.MEDIA_ROOT, saved_path)
-    except Exception as e:
-        print("Base64 save error:", e)
-        return None
-
-
-# ==========================================
-# IMAGE COMPRESSION FOR OCR
-# ==========================================
-
-def prepare_image_for_ocr(image_path, max_size_bytes=1400000):
-    try:
-        if not image_path or not os.path.exists(image_path):
-            return image_path
-
-        original_size = os.path.getsize(image_path)
-
-        if original_size <= max_size_bytes:
-            return image_path
-
-        img = Image.open(image_path)
-
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-        elif img.mode != "RGB":
-            img = img.convert("RGB")
-
-        width, height = img.size
-        compressed_path = os.path.splitext(image_path)[0] + "_ocr.jpg"
-
-        for scale in [1.0, 0.9, 0.8, 0.7, 0.6]:
-            new_w = max(800, int(width * scale))
-            new_h = max(800, int(height * scale))
-
-            resized = img.resize((new_w, new_h), Image.LANCZOS)
-
-            for quality in [85, 75, 65, 55, 45, 35]:
-                resized.save(
-                    compressed_path,
-                    format="JPEG",
-                    quality=quality,
-                    optimize=True
-                )
-
-                if os.path.exists(compressed_path):
-                    new_size = os.path.getsize(compressed_path)
-                    if new_size <= max_size_bytes:
-                        return compressed_path
-
-        if os.path.exists(compressed_path):
-            return compressed_path
-
-        return image_path
-
-    except Exception:
-        return image_path
-
-
-# ==========================================
-# TEXT HELPERS
-# ==========================================
-
-def clean_text(text):
-    if not text:
-        return ""
-    text = text.replace("\r", "\n")
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n+", "\n", text)
-    return text.strip()
-
-
-def normalize_word(word):
-    return re.sub(r"[^a-z0-9]", "", word.lower()) if word else ""
-
-
-# ==========================================
-# OCR
-# ==========================================
-
-def extract_text_from_image(image_path):
-    try:
-        api_key = os.getenv("OCR_SPACE_API_KEY", "").strip()
-
-        if not api_key:
-            return ""
-
-        if not image_path or not os.path.exists(image_path):
-            return ""
-
-        prepared_path = prepare_image_for_ocr(image_path)
-
-        with open(prepared_path, "rb") as f:
-            response = requests.post(
-                "https://api.ocr.space/parse/image",
-                files={"file": f},
-                data={
-                    "apikey": api_key,
-                    "language": "eng",
-                    "isOverlayRequired": False,
-                    "OCREngine": 2,
-                    "scale": True,
-                    "detectOrientation": True,
-                },
-                timeout=60
-            )
-
-        if response.status_code != 200:
-            return ""
-
-        try:
-            data = response.json()
-        except Exception:
-            return ""
-
-        if data.get("IsErroredOnProcessing"):
-            return ""
-
-        parsed_results = data.get("ParsedResults", [])
-        if not parsed_results:
-            return ""
-
-        text = "\n".join(
-            item.get("ParsedText", "")
-            for item in parsed_results
-            if isinstance(item, dict)
-        ).strip()
-
-        if not text:
-            return ""
-
-        return clean_text(text)
-
-    except Exception:
-        return ""
-
-
-# ==========================================
-# MEDICINE NAME EXTRACTION
-# ==========================================
-
-def extract_prescription_medicine_name(text):
-    if not text:
-        return "Not found"
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-
-    for line in lines:
-        if re.search(r'\b(tab|tablet|cap|capsule)\b', line, re.I):
-            # Example: Tab Gudcef 200mg 1-0-1
-            line_clean = re.sub(r'^\s*(tab|tablet|cap|capsule)\s+', '', line, flags=re.I)
-
-            # Remove dosage pattern
-            line_clean = re.sub(r'\b\d+\s*-\s*\d+\s*-\s*\d+\b', '', line_clean, flags=re.I)
-
-            # Remove x days
-            line_clean = re.sub(r'\bx\s*\d+\s*days?\b', '', line_clean, flags=re.I)
-
-            # Remove extra symbols
-            line_clean = re.sub(r'[\[\]\(\)\{\}]', ' ', line_clean)
-
-            # Keep medicine + strength if available
-            words = re.findall(r'[A-Za-z0-9]+', line_clean)
-            if words:
-                medicine_words = []
-                for w in words:
-                    nw = normalize_word(w)
-                    if nw in ['days', 'day']:
-                        continue
-                    medicine_words.append(w)
-
-                    # Gudcef 200mg
-                    if len(medicine_words) >= 2:
-                        break
-
-                if medicine_words:
-                    return " ".join(medicine_words)
-
-    return "Not found"
-
-
-# ==========================================
-# EXPIRY DATE
-# ==========================================
-
-def extract_expiry_date(text):
-    if not text:
-        return "Not found"
-
-    patterns = [
-        r"EXP[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})",
-        r"EXPIRY[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})",
-        r"\b([0-1]?\d[/\-][0-9]{4})\b",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, text, re.I)
-        if match:
-            return match.group(1).replace("-", "/")
-
-    return "Not found"
-
-
-# ==========================================
-# DOSAGE
-# ==========================================
-
-def extract_days(text):
-    if not text:
-        return None
-
-    match = re.search(r'x\s*(\d+)\s*days?', text, re.I)
-    if match:
-        return match.group(1)
-
-    return None
-
-
-def dosage_code_to_text(code, days=None):
-    code = code.replace(" ", "")
-
-    dosage_map = {
-        "1-0-1": "Morning and Evening 1 tablet",
-        "1-0-0": "Morning 1 tablet",
-        "0-1-0": "Afternoon 1 tablet",
-        "0-0-1": "Evening 1 tablet",
-        "1-1-0": "Morning and Afternoon 1 tablet",
-        "1-1-1": "Morning, Afternoon and Evening 1 tablet",
-        "0-1-1": "Afternoon and Evening 1 tablet",
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Medicine & Prescription Verifier AI</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f7fb;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+      color: #1f2937;
     }
 
-    text = dosage_map.get(code, code)
+    .container {
+      max-width: 1200px;
+      margin: 24px auto;
+      background: #fff;
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+    }
 
-    if days:
-        text += f" for {days} days"
+    h1 {
+      margin-top: 0;
+      font-size: 30px;
+      color: #111827;
+      line-height: 1.3;
+    }
 
-    return text
+    .sub {
+      color: #475569;
+      font-size: 16px;
+      margin-bottom: 22px;
+      line-height: 1.6;
+    }
 
+    .voice-panel {
+      margin-bottom: 18px;
+      background: #ecfeff;
+      border: 2px solid #a5f3fc;
+      border-radius: 18px;
+      padding: 16px;
+    }
 
-def extract_dosage_text(prescription_text, medicine_name):
-    if not prescription_text:
-        return "Not found"
+    .voice-panel h3 {
+      margin: 0 0 10px 0;
+      color: #0f172a;
+    }
 
-    lines = [line.strip() for line in prescription_text.splitlines() if line.strip()]
-    days = extract_days(prescription_text)
+    .voice-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
 
-    first_word = medicine_name.split()[0].lower() if medicine_name and medicine_name != "Not found" else ""
+    .yes-btn {
+      background: #16a34a;
+      color: white;
+      font-size: 18px;
+      padding: 14px 22px;
+      min-width: 140px;
+      border: none;
+      border-radius: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
 
-    # Try matching dosage on same medicine line
-    if first_word:
-        for line in lines:
-            if first_word in line.lower():
-                dose_match = re.search(r'\b(\d+\s*-\s*\d+\s*-\s*\d+)\b', line)
-                if dose_match:
-                    return dosage_code_to_text(dose_match.group(1), days)
+    .no-btn {
+      background: #dc2626;
+      color: white;
+      font-size: 18px;
+      padding: 14px 22px;
+      min-width: 140px;
+      border: none;
+      border-radius: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
 
-    # Fallback first dosage found
-    for line in lines:
-        dose_match = re.search(r'\b(\d+\s*-\s*\d+\s*-\s*\d+)\b', line)
-        if dose_match:
-            return dosage_code_to_text(dose_match.group(1), days)
+    .listen-btn {
+      background: #7c3aed;
+      color: white;
+      font-size: 16px;
+      padding: 14px 22px;
+      min-width: 180px;
+      border: none;
+      border-radius: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
 
-    return "Not found"
+    .upload-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
 
+    .upload-box {
+      border: 2px dashed #cbd5e1;
+      border-radius: 18px;
+      padding: 18px;
+      background: #f8fafc;
+      text-align: left;
+    }
 
-# ==========================================
-# VOICE MESSAGE
-# ==========================================
+    .upload-box h3 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 18px;
+      color: #1f2937;
+    }
 
-def build_voice_message(result):
-    if result.get("error"):
-        return result["error"]
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
 
-    return (
-        f"Medicine name {result.get('medicine_name', 'Not found')}. "
-        f"Expiry date {result.get('expiry_date', 'Not found')}. "
-        f"Dosage {result.get('dosage_text', 'Not found')}."
-    )
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 14px 18px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
 
+    button:hover {
+      opacity: 0.95;
+      transform: translateY(-1px);
+    }
 
-# ==========================================
-# OPTIONAL SERVAM TTS
-# ==========================================
+    .blue-btn {
+      background: #2563eb;
+      color: white;
+    }
 
-def generate_servam_tts(text):
-    try:
-        api_key = getattr(settings, "SERVAM_API_KEY", "")
-        api_url = getattr(settings, "SERVAM_API_URL", "")
+    .green-btn {
+      background: #0f766e;
+      color: white;
+      font-size: 18px;
+      padding: 16px 24px;
+      min-width: 180px;
+    }
 
-        if not api_key or not api_url or not text:
-            return None
+    .orange-btn {
+      background: #ea580c;
+      color: white;
+    }
 
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+    .gray-btn {
+      background: #64748b;
+      color: white;
+    }
+
+    .red-btn {
+      background: #dc2626;
+      color: white;
+      font-size: 18px;
+      padding: 16px 24px;
+      min-width: 180px;
+    }
+
+    .action-row {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .preview-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 12px;
+    }
+
+    .preview-box h4 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+    }
+
+    .preview-box img {
+      width: 100%;
+      max-height: 320px;
+      object-fit: contain;
+      border-radius: 12px;
+      background: #e2e8f0;
+      min-height: 120px;
+    }
+
+    .camera-section {
+      margin-top: 20px;
+      background: #eff6ff;
+      border: 2px solid #bfdbfe;
+      border-radius: 18px;
+      padding: 16px;
+      display: none;
+    }
+
+    .camera-section.active {
+      display: block;
+    }
+
+    .camera-title {
+      font-size: 20px;
+      font-weight: bold;
+      color: #1d4ed8;
+      margin-bottom: 10px;
+    }
+
+    .camera-countdown {
+      font-size: 28px;
+      font-weight: bold;
+      color: #dc2626;
+      margin: 12px 0;
+    }
+
+    .status-box {
+      margin-top: 18px;
+      background: #f8fafc;
+      border-left: 5px solid #0f766e;
+      padding: 14px;
+      border-radius: 12px;
+      text-align: left;
+      font-size: 16px;
+      color: #334155;
+      line-height: 1.6;
+    }
+
+    .loading {
+      display: none;
+      margin-top: 18px;
+      font-size: 18px;
+      font-weight: bold;
+      color: #1d4ed8;
+    }
+
+    .loading.active {
+      display: block;
+    }
+
+    .result-box {
+      margin-top: 20px;
+      text-align: left;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 18px;
+      padding: 18px;
+    }
+
+    .result-box h2 {
+      margin-top: 0;
+      color: #0f172a;
+    }
+
+    .result-item {
+      font-size: 18px;
+      margin: 14px 0;
+      line-height: 1.7;
+    }
+
+    .result-label {
+      font-weight: bold;
+      color: #111827;
+    }
+
+    .hidden-canvas {
+      display: none;
+    }
+
+    @media (max-width: 900px) {
+      .upload-grid, .preview-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .container {
+        margin: 16px;
+        padding: 16px;
+      }
+
+      h1 {
+        font-size: 22px;
+      }
+
+      .green-btn, .red-btn, .yes-btn, .no-btn, .listen-btn {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Medicine & Prescription Verifier AI</h1>
+    <p class="sub">
+      Capture or upload prescription and medicine images. App will show only:
+      Medicine name, Expiry date, and Dosage.
+    </p>
+
+    <div class="voice-panel">
+      <h3>Voice Guided Start</h3>
+      <div id="voicePromptText">When page opens, app will ask: “Do you want to start? Say Yes or No.”</div>
+      <div class="voice-buttons">
+        <button type="button" class="yes-btn" id="yesBtn">Yes</button>
+        <button type="button" class="no-btn" id="noBtn">No</button>
+        <button type="button" class="listen-btn" id="listenBtn">Start Voice Listening</button>
+      </div>
+    </div>
+
+    <form id="uploadForm" method="POST" enctype="multipart/form-data">
+      {% csrf_token %}
+
+      <div class="upload-grid">
+        <div class="upload-box">
+          <h3>Prescription Image</h3>
+          <!-- IMPORTANT: name must match views.py -->
+          <input type="file" id="prescriptionInput" name="prescription_image" accept="image/*" />
+          <input type="hidden" id="prescriptionCameraData" name="prescription_camera_data" />
+          <div class="btn-row">
+            <button type="button" class="blue-btn" id="openPrescriptionCameraBtn">Open Camera</button>
+            <button type="button" class="orange-btn" id="capturePrescriptionBtn">Capture</button>
+          </div>
+        </div>
+
+        <div class="upload-box">
+          <h3>Medicine Image</h3>
+          <!-- IMPORTANT: name must match views.py -->
+          <input type="file" id="medicineInput" name="medicine_image" accept="image/*" />
+          <input type="hidden" id="medicineCameraData" name="medicine_camera_data" />
+          <div class="btn-row">
+            <button type="button" class="blue-btn" id="openMedicineCameraBtn">Open Camera</button>
+            <button type="button" class="orange-btn" id="captureMedicineBtn">Capture</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button type="submit" class="green-btn" id="analyzeBtn">Analyze</button>
+        <button type="button" class="red-btn" id="clearAllBtn">Clear All</button>
+      </div>
+    </form>
+
+    <div class="camera-section" id="cameraSection">
+      <div class="camera-title" id="cameraTitle">Camera</div>
+      <video id="video" autoplay playsinline muted style="width:100%; max-height:420px; border-radius:12px; background:#000;"></video>
+      <div class="camera-countdown" id="countdownText"></div>
+      <div class="btn-row" style="justify-content:center;">
+        <button type="button" class="orange-btn" id="manualCaptureBtn">Capture Now</button>
+        <button type="button" class="gray-btn" id="stopCameraBtn">Stop Camera</button>
+      </div>
+    </div>
+
+    <canvas id="canvas" class="hidden-canvas"></canvas>
+
+    <div class="preview-grid">
+      <div class="preview-box">
+        <h4>Prescription Preview</h4>
+        <img id="prescriptionPreview" alt="Prescription preview" />
+      </div>
+      <div class="preview-box">
+        <h4>Medicine Preview</h4>
+        <img id="medicinePreview" alt="Medicine preview" />
+      </div>
+    </div>
+
+    <div class="status-box" id="statusBox">
+      Ready. Waiting for Yes / No.
+    </div>
+
+    <div class="loading" id="loadingText">Analyzing... Please wait...</div>
+
+    {% if result %}
+    <div class="result-box" id="resultBox">
+      {% if result.error %}
+        <h2 style="color:#dc2626;">Error</h2>
+        <div class="result-item">{{ result.error }}</div>
+      {% else %}
+        <h2>Result</h2>
+        <div class="result-item">
+          <span class="result-label">Medicine name:</span>
+          <span id="medicineNameText">{{ result.medicine_name }}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">Expiry date:</span>
+          <span id="expiryDateText">{{ result.expiry_date }}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">Dosage:</span>
+          <span id="dosageText">{{ result.dosage_text }}</span>
+        </div>
+
+        <div id="voiceResultText" style="display:none;">
+          Medicine name {{ result.medicine_name }}. Expiry date {{ result.expiry_date }}. Dosage {{ result.dosage_text }}.
+        </div>
+
+        {% if result.servam_audio_url %}
+          <audio autoplay controls style="margin-top:15px; width:100%;">
+            <source src="{{ result.servam_audio_url }}" type="audio/mpeg">
+          </audio>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+    const prescriptionInput = document.getElementById("prescriptionInput");
+    const medicineInput = document.getElementById("medicineInput");
+
+    const prescriptionCameraData = document.getElementById("prescriptionCameraData");
+    const medicineCameraData = document.getElementById("medicineCameraData");
+
+    const prescriptionPreview = document.getElementById("prescriptionPreview");
+    const medicinePreview = document.getElementById("medicinePreview");
+
+    const openPrescriptionCameraBtn = document.getElementById("openPrescriptionCameraBtn");
+    const capturePrescriptionBtn = document.getElementById("capturePrescriptionBtn");
+    const openMedicineCameraBtn = document.getElementById("openMedicineCameraBtn");
+    const captureMedicineBtn = document.getElementById("captureMedicineBtn");
+
+    const uploadForm = document.getElementById("uploadForm");
+    const analyzeBtn = document.getElementById("analyzeBtn");
+    const clearAllBtn = document.getElementById("clearAllBtn");
+    const loadingText = document.getElementById("loadingText");
+
+    const cameraSection = document.getElementById("cameraSection");
+    const cameraTitle = document.getElementById("cameraTitle");
+    const countdownText = document.getElementById("countdownText");
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const manualCaptureBtn = document.getElementById("manualCaptureBtn");
+    const stopCameraBtn = document.getElementById("stopCameraBtn");
+
+    const statusBox = document.getElementById("statusBox");
+    const resultBox = document.getElementById("resultBox");
+
+    const yesBtn = document.getElementById("yesBtn");
+    const noBtn = document.getElementById("noBtn");
+    const listenBtn = document.getElementById("listenBtn");
+    const voicePromptText = document.getElementById("voicePromptText");
+
+    let currentStream = null;
+    let currentTarget = null;
+    let countdownInterval = null;
+    let currentStep = "start"; // start, wait_second_confirm, done
+    let recognition = null;
+    let isListening = false;
+
+    function updateStatus(msg) {
+      statusBox.innerText = msg;
+      console.log(msg);
+    }
+
+    function updateVoicePrompt(msg) {
+      voicePromptText.innerText = msg;
+    }
+
+    function speak(text, priority = false, callback = null) {
+      try {
+        if (priority) {
+          window.speechSynthesis.cancel();
         }
 
-        payload = {
-            "text": text,
-            "language": "en-IN",
-            "speaker": "female"
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.rate = 0.95;
+        utter.pitch = 1;
+        utter.volume = 1;
+
+        utter.onend = function () {
+          if (callback) callback();
+        };
+
+        window.speechSynthesis.speak(utter);
+      } catch (e) {
+        console.log("Speech failed:", e);
+        if (callback) callback();
+      }
+    }
+
+    function stopSpeaking() {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+    }
+
+    function previewImage(imgEl, file) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        imgEl.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function setupSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        updateStatus("Voice recognition not supported. Use Yes / No buttons.");
+        updateVoicePrompt("Voice recognition not supported. Use Yes / No buttons.");
+        return false;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        isListening = true;
+        updateStatus("Listening... Please say Yes or No.");
+        updateVoicePrompt("Listening... Please say Yes or No.");
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript.toLowerCase().trim();
+        isListening = false;
+
+        if (transcript.includes("yes")) {
+          handleYes();
+        } else if (transcript.includes("no")) {
+          handleNo();
+        } else {
+          speak("I did not understand. Please say Yes or No.", true, () => {
+            setTimeout(() => startListening(), 500);
+          });
         }
+      };
 
-        response = requests.post(api_url, json=payload, headers=headers, timeout=30)
+      recognition.onerror = () => {
+        isListening = false;
+        updateStatus("Voice recognition failed. Use Yes / No buttons.");
+      };
 
-        if response.status_code != 200:
-            return None
+      recognition.onend = () => {
+        isListening = false;
+      };
 
-        data = response.json()
-        return data.get("audio_url") or data.get("url")
+      return true;
+    }
 
-    except Exception:
-        return None
+    function startListening() {
+      if (!recognition) {
+        const ok = setupSpeechRecognition();
+        if (!ok) return;
+      }
 
+      try {
+        if (isListening) return;
+        recognition.start();
+      } catch (e) {
+        console.log("Recognition start failed:", e);
+      }
+    }
 
-# ==========================================
-# MAIN VIEW
-# ==========================================
+    async function openCamera(target) {
+      try {
+        stopCamera();
 
-def home(request):
-    result = None
+        currentTarget = target;
+        cameraSection.classList.add("active");
 
-    if request.method == "POST":
-        try:
-            prescription_path = None
-            medicine_path = None
+        cameraTitle.innerText = target === "prescription"
+          ? "Prescription Camera (Auto capture in 10 seconds)"
+          : "Medicine Camera (Auto capture in 10 seconds)";
 
-            # IMPORTANT: these names must match home.html input names
-            prescription_file = request.FILES.get("prescription_image")
-            medicine_file = request.FILES.get("medicine_image")
+        updateStatus(target === "prescription"
+          ? "Opening prescription camera..."
+          : "Opening medicine camera...");
 
-            if prescription_file:
-                prescription_path = save_uploaded_file(prescription_file, folder="prescriptions")
+        speak(target === "prescription"
+          ? "Opening prescription camera. Please hold the prescription steady. Auto capture in 10 seconds."
+          : "Opening medicine camera. Please hold the medicine steady. Auto capture in 10 seconds.",
+          true
+        );
 
-            if medicine_file:
-                medicine_path = save_uploaded_file(medicine_file, folder="medicines")
+        currentStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false
+        });
 
-            prescription_camera = request.POST.get("prescription_camera_data")
-            medicine_camera = request.POST.get("medicine_camera_data")
+        video.srcObject = currentStream;
+        await video.play();
 
-            if not prescription_path and prescription_camera:
-                prescription_path = save_base64_image(
-                    prescription_camera,
-                    file_name="prescription_capture.jpg",
-                    folder="prescriptions"
-                )
+        startCountdownAndAutoCapture(10);
+      } catch (error) {
+        console.error("Camera open failed:", error);
+        updateStatus("Camera access failed. Please allow camera permission and try again.");
+        speak("Camera access failed. Please allow camera permission and try again.", true);
+      }
+    }
 
-            if not medicine_path and medicine_camera:
-                medicine_path = save_base64_image(
-                    medicine_camera,
-                    file_name="medicine_capture.jpg",
-                    folder="medicines"
-                )
+    function stopCamera() {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
 
-            if not prescription_path or not medicine_path:
-                result = {
-                    "error": "Please provide both prescription and medicine images."
-                }
-                return render(request, "home.html", {"result": result})
+      countdownText.innerText = "";
 
-            # OCR
-            prescription_text = extract_text_from_image(prescription_path)
-            medicine_text = extract_text_from_image(medicine_path)
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+      }
 
-            # Only 3 required details
-            medicine_name = extract_prescription_medicine_name(prescription_text)
-            expiry_date = extract_expiry_date(medicine_text)
-            dosage_text = extract_dosage_text(prescription_text, medicine_name)
+      video.srcObject = null;
+    }
 
-            result = {
-                "error": None,
-                "medicine_name": medicine_name,
-                "expiry_date": expiry_date,
-                "dosage_text": dosage_text,
-            }
+    function captureCurrentFrame() {
+      if (!video.videoWidth || !video.videoHeight || !currentTarget) return false;
 
-            result["voice_message"] = build_voice_message(result)
-            result["servam_audio_url"] = generate_servam_tts(result["voice_message"])
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
 
-        except Exception as e:
-            result = {
-                "error": f"An error occurred: {str(e)}",
-                "medicine_name": "Not found",
-                "expiry_date": "Not found",
-                "dosage_text": "Not found",
-                "voice_message": "Unable to analyze. Please try again.",
-                "servam_audio_url": None,
-            }
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    return render(request, "home.html", {"result": result})
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+
+      if (currentTarget === "prescription") {
+        prescriptionCameraData.value = dataUrl;
+        prescriptionInput.value = "";
+        prescriptionPreview.src = dataUrl;
+
+        updateStatus("Prescription image captured successfully.");
+        speak("Prescription image captured successfully.", true);
+
+        stopCamera();
+        cameraSection.classList.remove("active");
+
+        setTimeout(() => {
+          askSecondCamera();
+        }, 800);
+
+      } else {
+        medicineCameraData.value = dataUrl;
+        medicineInput.value = "";
+        medicinePreview.src = dataUrl;
+
+        updateStatus("Medicine image captured successfully.");
+        speak("Medicine image captured successfully.", true);
+
+        stopCamera();
+        cameraSection.classList.remove("active");
+
+        setTimeout(() => {
+          safeAutoSubmitAnalyze();
+        }, 1200);
+      }
+
+      return true;
+    }
+
+    function startCountdownAndAutoCapture(seconds) {
+      let timeLeft = seconds;
+      countdownText.innerText = `Capturing in ${timeLeft}...`;
+
+      countdownInterval = setInterval(() => {
+        timeLeft--;
+
+        if (timeLeft > 0) {
+          countdownText.innerText = `Capturing in ${timeLeft}...`;
+
+          if (timeLeft === 5) speak("5 seconds remaining.");
+          if (timeLeft === 3) speak("3 seconds remaining.");
+          if (timeLeft === 1) speak("1 second remaining.");
+        } else {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+          countdownText.innerText = "Capturing now...";
+          speak("Capturing now.", true);
+          setTimeout(() => {
+            captureCurrentFrame();
+          }, 400);
+        }
+      }, 1000);
+    }
+
+    function askStartQuestion() {
+      currentStep = "start";
+      updateStatus("Do you want to start? Say Yes or No.");
+      updateVoicePrompt("Do you want to start? Say Yes or No.");
+      speak("Do you want to start? Please say Yes or No.", true, () => {
+        setTimeout(() => {
+          startListening();
+        }, 600);
+      });
+    }
+
+    function askSecondCamera() {
+      currentStep = "wait_second_confirm";
+      updateStatus("Do you want to open second camera? Say Yes or No.");
+      updateVoicePrompt("Do you want to open second camera? Say Yes or No.");
+      speak("Do you want to open second camera? Please say Yes or No.", true, () => {
+        setTimeout(() => {
+          startListening();
+        }, 600);
+      });
+    }
+
+    function handleYes() {
+      if (currentStep === "start") {
+        currentStep = "opening_first";
+        updateStatus("Yes received. Opening first camera.");
+        updateVoicePrompt("Yes received. Opening first camera.");
+        speak("Yes received. Opening first camera now.", true, () => {
+          setTimeout(() => {
+            openCamera("prescription");
+          }, 400);
+        });
+      } else if (currentStep === "wait_second_confirm") {
+        currentStep = "opening_second";
+        updateStatus("Yes received. Opening second camera.");
+        updateVoicePrompt("Yes received. Opening second camera.");
+        speak("Yes received. Opening second camera now.", true, () => {
+          setTimeout(() => {
+            openCamera("medicine");
+          }, 400);
+        });
+      }
+    }
+
+    function handleNo() {
+      updateStatus("Process cancelled. You can start later.");
+      updateVoicePrompt("Process cancelled. You can start later.");
+      speak("Okay. Process cancelled. You can start later.", true);
+    }
+
+    function hasPrescription() {
+      return prescriptionInput.files.length > 0 || prescriptionCameraData.value.trim() !== "";
+    }
+
+    function hasMedicine() {
+      return medicineInput.files.length > 0 || medicineCameraData.value.trim() !== "";
+    }
+
+    function autoSubmitAnalyze() {
+      if (!hasPrescription() || !hasMedicine()) {
+        updateStatus("Both images are required before analysis.");
+        speak("Both images are required before analysis.", true);
+        return;
+      }
+
+      currentStep = "done";
+      updateStatus("Both images captured. Starting analysis...");
+      updateVoicePrompt("Both images captured. Starting analysis...");
+      speak("Both images captured. Starting analysis now.", true);
+
+      loadingText.classList.add("active");
+      analyzeBtn.disabled = true;
+      analyzeBtn.innerText = "Analyzing...";
+
+      setTimeout(() => {
+        uploadForm.submit();
+      }, 900);
+    }
+
+    function safeAutoSubmitAnalyze() {
+      if (hasPrescription() && hasMedicine()) {
+        autoSubmitAnalyze();
+        return;
+      }
+
+      setTimeout(() => {
+        if (hasPrescription() && hasMedicine()) {
+          autoSubmitAnalyze();
+        } else {
+          updateStatus("Capture incomplete. Please retake images.");
+          speak("Capture incomplete. Please retake both images.", true);
+        }
+      }, 1000);
+    }
+
+    function clearAllData() {
+      stopSpeaking();
+      stopCamera();
+
+      currentTarget = null;
+      currentStep = "start";
+
+      prescriptionInput.value = "";
+      medicineInput.value = "";
+
+      prescriptionCameraData.value = "";
+      medicineCameraData.value = "";
+
+      prescriptionPreview.src = "";
+      medicinePreview.src = "";
+
+      loadingText.classList.remove("active");
+
+      analyzeBtn.disabled = false;
+      analyzeBtn.innerText = "Analyze";
+
+      if (resultBox) {
+        resultBox.style.display = "none";
+      }
+
+      cameraSection.classList.remove("active");
+
+      updateStatus("All details cleared. Ready for new scan.");
+      updateVoicePrompt("All details cleared. Ready for new scan.");
+      speak("All details cleared. Ready for new scan.", true);
+    }
+
+    // Buttons
+    yesBtn.addEventListener("click", handleYes);
+    noBtn.addEventListener("click", handleNo);
+    listenBtn.addEventListener("click", startListening);
+
+    openPrescriptionCameraBtn.addEventListener("click", () => {
+      currentStep = "opening_first";
+      openCamera("prescription");
+    });
+
+    capturePrescriptionBtn.addEventListener("click", async () => {
+      currentStep = "opening_first";
+      await openCamera("prescription");
+    });
+
+    openMedicineCameraBtn.addEventListener("click", () => {
+      currentStep = "opening_second";
+      openCamera("medicine");
+    });
+
+    captureMedicineBtn.addEventListener("click", async () => {
+      currentStep = "opening_second";
+      await openCamera("medicine");
+    });
+
+    manualCaptureBtn.addEventListener("click", () => {
+      captureCurrentFrame();
+    });
+
+    stopCameraBtn.addEventListener("click", () => {
+      stopCamera();
+      cameraSection.classList.remove("active");
+      updateStatus("Camera stopped.");
+      speak("Camera stopped.", true);
+    });
+
+    clearAllBtn.addEventListener("click", clearAllData);
+
+    prescriptionInput.addEventListener("change", function() {
+      if (this.files && this.files[0]) {
+        prescriptionCameraData.value = "";
+        previewImage(prescriptionPreview, this.files[0]);
+      }
+    });
+
+    medicineInput.addEventListener("change", function() {
+      if (this.files && this.files[0]) {
+        medicineCameraData.value = "";
+        previewImage(medicinePreview, this.files[0]);
+      }
+    });
+
+    uploadForm.addEventListener("submit", function(e) {
+      if (!hasPrescription() || !hasMedicine()) {
+        e.preventDefault();
+        updateStatus("Please provide both prescription and medicine images.");
+        speak("Please provide both prescription and medicine images.", true);
+        return;
+      }
+
+      loadingText.classList.add("active");
+      analyzeBtn.disabled = true;
+      analyzeBtn.innerText = "Analyzing...";
+      updateStatus("Analyzing images...");
+    });
+
+    window.addEventListener("load", () => {
+      setTimeout(() => {
+        askStartQuestion();
+      }, 1200);
+
+      const voiceResultText = document.getElementById("voiceResultText");
+      if (voiceResultText && voiceResultText.innerText.trim()) {
+        setTimeout(() => {
+          speak("Analysis completed. Reading result now.", true, () => {
+            setTimeout(() => {
+              speak(voiceResultText.innerText, true);
+            }, 800);
+          });
+        }, 1500);
+      }
+    });
+  </script>
+</body>
+</html>
