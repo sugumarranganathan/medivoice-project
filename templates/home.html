@@ -318,7 +318,7 @@
 
     <div class="voice-panel">
       <h3>Voice Guided Start</h3>
-      <div id="voicePromptText">Page will ask and then open first camera after Yes.</div>
+      <div id="voicePromptText">Click Start Voice Listening to begin.</div>
       <div class="voice-buttons">
         <button type="button" class="yes-btn" id="yesBtn">Yes</button>
         <button type="button" class="no-btn" id="noBtn">No</button>
@@ -560,10 +560,18 @@
         if (!ok) return;
       }
 
-      try {
-        if (isListening) return;
-        recognition.start();
-      } catch (e) {}
+      currentStep = "start";
+      updateStatus("Do you want to open First camera for Prescription image, say yes or no?");
+      updateVoicePrompt("Do you want to open First camera for Prescription image, say yes or no?");
+
+      speak("Do you want to open First camera for Prescription image, say yes or no?", true, () => {
+        setTimeout(() => {
+          try {
+            if (isListening) return;
+            recognition.start();
+          } catch (e) {}
+        }, 900);
+      });
     }
 
     async function openCamera(target) {
@@ -642,9 +650,11 @@
         stopCamera();
         cameraSection.classList.remove("active");
 
-        setTimeout(() => {
-          askSecondCamera();
-        }, 1200);
+        speak("Prescription image captured.", true, () => {
+          setTimeout(() => {
+            askSecondCamera();
+          }, 800);
+        });
 
       } else if (currentTarget === "medicine") {
         medicineCameraData.value = dataUrl;
@@ -655,9 +665,11 @@
         stopCamera();
         cameraSection.classList.remove("active");
 
-        setTimeout(() => {
-          safeAutoSubmitAnalyze();
-        }, 1200);
+        speak("Medicine image captured.", true, () => {
+          setTimeout(() => {
+            safeAutoSubmitAnalyze();
+          }, 800);
+        });
       }
 
       return true;
@@ -684,26 +696,17 @@
       }, 1000);
     }
 
-    function askStartQuestion() {
-      currentStep = "start";
-      updateStatus("Do you want to start? Say Yes or No.");
-      updateVoicePrompt("Do you want to start? Say Yes or No.");
-
-      speak("Do you want to start? Please say Yes or No.", true, () => {
-        setTimeout(() => {
-          startListening();
-        }, 800);
-      });
-    }
-
     function askSecondCamera() {
       currentStep = "wait_second_confirm";
-      updateStatus("Do you want to open second camera? Say Yes or No.");
-      updateVoicePrompt("Do you want to open second camera? Say Yes or No.");
+      updateStatus("Do you want to open second camera for Medicine image, say yes or no?");
+      updateVoicePrompt("Do you want to open second camera for Medicine image, say yes or no?");
 
-      speak("Do you want to open second camera? Please say Yes or No.", true, () => {
+      speak("Do you want to open second camera for Medicine image, say yes or no?", true, () => {
         setTimeout(() => {
-          startListening();
+          try {
+            if (isListening) return;
+            recognition.start();
+          } catch (e) {}
         }, 1000);
       });
     }
@@ -757,15 +760,18 @@
       }
 
       currentStep = "done";
-      updateStatus("Both images captured. Starting analysis...");
-      updateVoicePrompt("Both images captured. Starting analysis...");
-      loadingText.classList.add("active");
-      analyzeBtn.disabled = true;
-      analyzeBtn.innerText = "Analyzing...";
+      updateStatus("Now analysis going on.");
+      updateVoicePrompt("Now analysis going on.");
 
-      setTimeout(() => {
-        uploadForm.submit();
-      }, 1000);
+      speak("Now analysis going on.", true, () => {
+        loadingText.classList.add("active");
+        analyzeBtn.disabled = true;
+        analyzeBtn.innerText = "Analyzing...";
+
+        setTimeout(() => {
+          uploadForm.submit();
+        }, 800);
+      });
     }
 
     function safeAutoSubmitAnalyze() {
@@ -870,10 +876,6 @@
     });
 
     window.addEventListener("load", () => {
-      setTimeout(() => {
-        askStartQuestion();
-      }, 1000);
-
       const voiceResultText = document.getElementById("voiceResultText");
       if (voiceResultText && voiceResultText.innerText.trim()) {
         setTimeout(() => {
