@@ -4,7 +4,6 @@ import base64
 import requests
 from io import BytesIO
 from datetime import datetime
-from difflib import SequenceMatcher
 
 from PIL import Image
 from django.conf import settings
@@ -116,10 +115,6 @@ def clean_text(text):
     return text.strip()
 
 
-def normalize_text(text):
-    return re.sub(r"[^a-z0-9]", "", text.lower()) if text else ""
-
-
 def normalize_word(word):
     return re.sub(r"[^a-z0-9]", "", word.lower()) if word else ""
 
@@ -156,19 +151,19 @@ def extract_text_from_image(image_path):
             )
 
         if response.status_code != 200:
-            return "", f"{prep_debug} | OCR HTTP error: {response.status_code} | {response.text[:300]}"
+            return "", f"{prep_debug} | OCR HTTP error: {response.status_code}"
 
         try:
             data = response.json()
         except Exception:
-            return "", f"{prep_debug} | OCR invalid JSON: {response.text[:300]}"
+            return "", f"{prep_debug} | OCR invalid JSON"
 
         if data.get("IsErroredOnProcessing"):
-            return "", f"{prep_debug} | OCR processing error: {data.get('ErrorMessage', 'Unknown error')}"
+            return "", f"{prep_debug} | OCR processing error"
 
         parsed_results = data.get("ParsedResults", [])
         if not parsed_results:
-            return "", f"{prep_debug} | No ParsedResults from OCR"
+            return "", f"{prep_debug} | No ParsedResults"
 
         text = "\n".join(
             item.get("ParsedText", "")
@@ -186,147 +181,51 @@ def extract_text_from_image(image_path):
 
 
 # ==========================================
-# MEDICINE MATCHING (SMART)
+# MEDICINE NAME EXTRACTION
 # ==========================================
 
-def extract_prescription_medicine_candidates(text):
+def extract_prescription_medicine_name(text):
     if not text:
-        return []
-
-    candidates = []
-
-    lines = text.splitlines()
-    for line in lines:
-        line_clean = line.strip()
-        if not line_clean:
-            continue
-
-        # likely medicine lines
-        if re.search(r'\b(tab|cap|syr|tablet|capsule|inj|drop)\b', line_clean, re.I):
-            words = re.findall(r'[A-Za-z0-9]+', line_clean)
-            filtered = []
-            skip_words = {
-                'tab', 'tablet', 'tablets', 'cap', 'capsule', 'capsules',
-                'syr', 'syrup', 'inj', 'injection', 'drop', 'drops',
-                'mg', 'ml', 'days', 'day'
-            }
-
-            for w in words:
-                nw = normalize_word(w)
-                if len(nw) >= 4 and nw not in skip_words and not nw.isdigit():
-                    filtered.append(w)
-
-            if filtered:
-                candidates.extend(filtered)
-
-    # fallback: all possible words
-    if not candidates:
-        words = re.findall(r'[A-Za-z]{4,}', text)
-        candidates = words
-
-    # unique
-    unique = []
-    seen = set()
-    for c in candidates:
-        n = normalize_word(c)
-        if n and n not in seen:
-            seen.add(n)
-            unique.append(c)
-
-    return unique[:20]
-
-
-def extract_medicine_brand_candidates(text):
-    if not text:
-        return []
+        return "Not found"
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    candidates = []
 
-    # first 8 lines usually contain brand name
-    for line in lines[:8]:
-        words = re.findall(r'[A-Za-z0-9]+', line)
-        for w in words:
-            nw = normalize_word(w)
-            if len(nw) >= 4 and not nw.isdigit():
-                candidates.append(w)
+    for line in lines:
+        # Example: Tab Gudcef 200mg 1-0-1
+        if re.search(r'\b(tab|tablet|cap|capsule|syr|syrup)\b', line, re.I):
+            line_clean = re.sub(r'^\s*(tab|tablet|cap|capsule|syr|syrup)\s+', '', line, flags=re.I)
 
-    unique = []
-    seen = set()
-    for c in candidates:
-        n = normalize_word(c)
-        if n and n not in seen:
-            seen.add(n)
-            unique.append(c)
+            # remove dosage pattern and days
+            line_clean = re.sub(r'\b\d+\s*-\s*\d+\s*-\s*\d+\b', '', line_clean, flags=re.I)
+            line_clean = re.sub(r'\bx\s*\d+\s*days?\b', '', line_clean, flags=re.I)
+            line_clean = re.sub(r'\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b', '', line_clean, flags=re.I)
 
-    return unique[:20]
+            # take first medicine-like words
+            words = re.findall(r'[A-Za-z0-9]+', line_clean)
+            if words:
+                medicine_words = []
+                for w in words:
+                    nw = normalize_word(w)
+                    if nw in ['mg', 'ml', 'days', 'day']:
+                        continue
+                    medicine_words.append(w)
+                    # Usually medicine name + strength
+                    if len(medicine_words) >= 2:
+                        break
 
+                if medicine_words:
+                    return " ".join(medicine_words)
 
-def fuzzy_word_match(a, b):
-    na = normalize_word(a)
-    nb = normalize_word(b)
-
-    if not na or not nb:
-        return 0.0
-
-    if na == nb:
-        return 1.0
-
-    # remove common OCR confusion endings
-    # gudcet vs gudcef
-    if len(na) >= 5 and len(nb) >= 5:
-        if na[:-1] == nb[:-1]:
-            return 0.95
-        if na[:-2] == nb[:-2]:
-            return 0.90
-
-    return SequenceMatcher(None, na, nb).ratio()
-
-
-def find_best_medicine_match(prescription_text, medicine_text):
-    p_candidates = extract_prescription_medicine_candidates(prescription_text)
-    m_candidates = extract_medicine_brand_candidates(medicine_text)
-
-    best_score = 0.0
-    best_p = "Not found"
-    best_m = "Not found"
-
-    for p in p_candidates:
-        for m in m_candidates:
-            score = fuzzy_word_match(p, m)
-            if score > best_score:
-                best_score = score
-                best_p = p
-                best_m = m
-
-    # also compare full text fallback
-    p_norm = normalize_text(prescription_text)
-    m_norm = normalize_text(medicine_text)
-    full_score = 0.0
-    if p_norm and m_norm:
-        full_score = SequenceMatcher(None, p_norm[:400], m_norm[:400]).ratio()
-
-    final_score = max(best_score, full_score * 0.4)
-
-    matched = final_score >= 0.72
-
-    return {
-        "matched": matched,
-        "similarity": round(final_score * 100, 2),
-        "matched_prescription": best_p,
-        "matched_medicine": best_m,
-        "prescription_candidates": p_candidates,
-        "medicine_candidates": m_candidates,
-    }
+    return "Not found"
 
 
 # ==========================================
-# EXPIRY
+# EXPIRY DATE
 # ==========================================
 
 def extract_expiry_date(text):
     if not text:
-        return None
+        return "Not found"
 
     patterns = [
         r"EXP[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})",
@@ -339,92 +238,88 @@ def extract_expiry_date(text):
         if match:
             return match.group(1).replace("-", "/")
 
+    return "Not found"
+
+
+# ==========================================
+# DOSAGE EXTRACTION (ONLY SIMPLE OUTPUT)
+# ==========================================
+
+def convert_dosage_to_text(code, days=None):
+    code = code.replace(" ", "")
+
+    dosage_map = {
+        "1-0-1": "Morning and Evening 1 tablet",
+        "1-0-0": "Morning 1 tablet",
+        "0-1-0": "Afternoon 1 tablet",
+        "0-0-1": "Evening 1 tablet",
+        "1-1-0": "Morning and Afternoon 1 tablet",
+        "1-1-1": "Morning, Afternoon and Evening 1 tablet",
+        "0-1-1": "Afternoon and Evening 1 tablet",
+    }
+
+    text = dosage_map.get(code, code)
+
+    if days:
+        text += f" for {days} days"
+
+    return text
+
+
+def extract_days(text):
+    if not text:
+        return None
+
+    match = re.search(r'x\s*(\d+)\s*days?', text, re.I)
+    if match:
+        return match.group(1)
+
+    match = re.search(r'(\d+)\s*days?', text, re.I)
+    if match:
+        return match.group(1)
+
     return None
 
 
-def is_expired(expiry_str):
-    if not expiry_str:
-        return None
-
-    try:
-        expiry_str = expiry_str.replace("-", "/")
-        month, year = expiry_str.split("/")
-        month = int(month)
-        year = int(year)
-
-        if year < 100:
-            year += 2000
-
-        now = datetime.now()
-
-        if year < now.year:
-            return True
-        if year == now.year and month < now.month:
-            return True
-
-        return False
-    except Exception:
-        return None
-
-
-# ==========================================
-# DOSAGE
-# ==========================================
-
-def extract_dosage_info(text):
+def extract_dosage_text(text, medicine_name):
     if not text:
-        return []
+        return "Not found"
 
-    results = []
-    results += re.findall(r"\b\d+\s*-\s*\d+\s*-\s*\d+\b", text)
-    results += re.findall(r"\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b", text, re.I)
-    results += re.findall(r"\bx\s*\d+\s*days?\b", text, re.I)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    days = extract_days(text)
 
-    cleaned = []
-    seen = set()
-    for item in results:
-        item = re.sub(r"\s+", " ", item).strip()
-        if item not in seen:
-            seen.add(item)
-            cleaned.append(item)
+    for line in lines:
+        if medicine_name.lower().split()[0] in line.lower():
+            dose_match = re.search(r'\b(\d+\s*-\s*\d+\s*-\s*\d+)\b', line)
+            if dose_match:
+                return convert_dosage_to_text(dose_match.group(1), days)
 
-    return cleaned
+    # fallback: first dosage pattern anywhere
+    for line in lines:
+        dose_match = re.search(r'\b(\d+\s*-\s*\d+\s*-\s*\d+)\b', line)
+        if dose_match:
+            return convert_dosage_to_text(dose_match.group(1), days)
+
+    return "Not found"
 
 
 # ==========================================
-# VOICE MESSAGE
+# SIMPLE VOICE MESSAGE (ONLY 3 DETAILS)
 # ==========================================
 
 def build_voice_message(result):
     if result.get("error"):
-        return "Unable to analyze the medicine safely. Please try again with clearer images."
+        return "Please provide both prescription and medicine images."
 
-    parts = []
+    medicine_name = result.get("medicine_name", "Not found")
+    expiry_date = result.get("expiry_date", "Not found")
+    dosage_text = result.get("dosage_text", "Not found")
 
-    if result.get("matched"):
-        parts.append(
-            f"Good news. The prescription medicine {result.get('matched_prescription')} matches the strip medicine {result.get('matched_medicine')}."
-        )
-    else:
-        parts.append("Warning. The prescription and medicine may not match.")
-
-    if result.get("expiry_found"):
-        if result.get("expired") is True:
-            parts.append(f"The medicine appears expired. Expiry date detected as {result['expiry_found']}.")
-        elif result.get("expired") is False:
-            parts.append(f"The medicine does not appear expired. Expiry date detected as {result['expiry_found']}.")
-        else:
-            parts.append(f"Expiry date detected as {result['expiry_found']}, but it could not be fully verified.")
-    else:
-        parts.append("Expiry date could not be detected clearly.")
-
-    if result.get("dosage"):
-        parts.append(f"Dosage instructions found: {', '.join(result['dosage'])}.")
-    else:
-        parts.append("No clear dosage instructions were found.")
-
-    parts.append("Please confirm with a doctor or pharmacist before consuming.")
-    return " ".join(parts)
+    return (
+        f"Medicine name {medicine_name}. "
+        f"Expiry date {expiry_date}. "
+        f"Dosage {dosage_text}."
+    )
 
 
 # ==========================================
@@ -463,7 +358,7 @@ def generate_servam_tts(text):
 
 
 # ==========================================
-# MAIN VIEW
+# MAIN VIEW (ONLY 3 DETAILS IN RESULT)
 # ==========================================
 
 def home(request):
@@ -507,31 +402,19 @@ def home(request):
                 return render(request, "home.html", {"result": result})
 
             # OCR
-            prescription_text, prescription_debug = extract_text_from_image(prescription_path)
-            medicine_text, medicine_debug = extract_text_from_image(medicine_path)
+            prescription_text, _ = extract_text_from_image(prescription_path)
+            medicine_text, _ = extract_text_from_image(medicine_path)
 
-            # Smart medicine matching
-            match_info = find_best_medicine_match(prescription_text, medicine_text)
-
-            expiry_found = extract_expiry_date(medicine_text)
-            expired = is_expired(expiry_found)
-            dosage = extract_dosage_info(prescription_text)
+            # Only required details
+            medicine_name = extract_prescription_medicine_name(prescription_text)
+            expiry_date = extract_expiry_date(medicine_text)
+            dosage_text = extract_dosage_text(prescription_text, medicine_name)
 
             result = {
                 "error": None,
-                "prescription_text": prescription_text if prescription_text else "No text extracted",
-                "medicine_text": medicine_text if medicine_text else "No text extracted",
-                "prescription_debug": prescription_debug,
-                "medicine_debug": medicine_debug,
-                "matched_prescription": match_info["matched_prescription"],
-                "matched_medicine": match_info["matched_medicine"],
-                "similarity": match_info["similarity"],
-                "matched": match_info["matched"],
-                "expiry_found": expiry_found,
-                "expired": expired,
-                "dosage": dosage,
-                "prescription_candidates": match_info["prescription_candidates"],
-                "medicine_candidates": match_info["medicine_candidates"],
+                "medicine_name": medicine_name,
+                "expiry_date": expiry_date,
+                "dosage_text": dosage_text,
             }
 
             result["voice_message"] = build_voice_message(result)
@@ -540,20 +423,10 @@ def home(request):
         except Exception as e:
             result = {
                 "error": f"An error occurred: {str(e)}",
-                "prescription_text": "No text extracted",
-                "medicine_text": "No text extracted",
-                "prescription_debug": f"Main exception: {str(e)}",
-                "medicine_debug": "Not reached",
-                "matched_prescription": "Not found",
-                "matched_medicine": "Not found",
-                "similarity": 0,
-                "matched": False,
-                "expiry_found": None,
-                "expired": None,
-                "dosage": [],
-                "prescription_candidates": [],
-                "medicine_candidates": [],
-                "voice_message": "Unable to analyze the medicine safely. Please try again.",
+                "medicine_name": "Not found",
+                "expiry_date": "Not found",
+                "dosage_text": "Not found",
+                "voice_message": "Unable to analyze. Please try again.",
                 "servam_audio_url": None,
             }
 
