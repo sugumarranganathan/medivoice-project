@@ -1,433 +1,1181 @@
-import os
-import re
-import base64
-import requests
-from io import BytesIO
-from datetime import datetime
-
-from PIL import Image
-from django.conf import settings
-from django.shortcuts import render
-from django.core.files.storage import default_storage
-
-
-# ==========================================
-# FILE SAVE HELPERS
-# ==========================================
-
-def save_uploaded_file(file_obj, folder="uploads"):
-    try:
-        file_name = default_storage.save(f"{folder}/{file_obj.name}", file_obj)
-        return os.path.join(settings.MEDIA_ROOT, file_name)
-    except Exception as e:
-        print("File save error:", e)
-        return None
-
-
-def save_base64_image(data_url, file_name="camera_capture.jpg", folder="uploads"):
-    try:
-        if not data_url or "," not in data_url:
-            return None
-
-        header, imgstr = data_url.split(",", 1)
-        ext = "jpg"
-
-        if "image/png" in header:
-            ext = "png"
-        elif "image/webp" in header:
-            ext = "webp"
-
-        final_name = f"{os.path.splitext(file_name)[0]}.{ext}"
-        binary_data = base64.b64decode(imgstr)
-
-        relative_path = f"{folder}/{final_name}"
-        saved_path = default_storage.save(relative_path, BytesIO(binary_data))
-
-        return os.path.join(settings.MEDIA_ROOT, saved_path)
-    except Exception as e:
-        print("Base64 save error:", e)
-        return None
-
-
-# ==========================================
-# IMAGE COMPRESSION FOR OCR SPACE FREE PLAN
-# ==========================================
-
-def prepare_image_for_ocr(image_path, max_size_bytes=1400000):
-    try:
-        if not image_path or not os.path.exists(image_path):
-            return image_path, "Image file not found"
-
-        original_size = os.path.getsize(image_path)
-
-        if original_size <= max_size_bytes:
-            return image_path, f"Original size OK ({original_size} bytes)"
-
-        img = Image.open(image_path)
-
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-        elif img.mode != "RGB":
-            img = img.convert("RGB")
-
-        width, height = img.size
-        compressed_path = os.path.splitext(image_path)[0] + "_ocr.jpg"
-
-        for scale in [1.0, 0.9, 0.8, 0.7, 0.6]:
-            new_w = max(800, int(width * scale))
-            new_h = max(800, int(height * scale))
-
-            resized = img.resize((new_w, new_h), Image.LANCZOS)
-
-            for quality in [85, 75, 65, 55, 45, 35]:
-                resized.save(
-                    compressed_path,
-                    format="JPEG",
-                    quality=quality,
-                    optimize=True
-                )
-
-                if os.path.exists(compressed_path):
-                    new_size = os.path.getsize(compressed_path)
-                    if new_size <= max_size_bytes:
-                        return compressed_path, f"Compressed from {original_size} to {new_size} bytes"
-
-        if os.path.exists(compressed_path):
-            new_size = os.path.getsize(compressed_path)
-            return compressed_path, f"Compressed best effort: {original_size} -> {new_size} bytes"
-
-        return image_path, f"Compression failed, original size {original_size} bytes"
-
-    except Exception as e:
-        return image_path, f"Compression error: {str(e)}"
-
-
-# ==========================================
-# TEXT HELPERS
-# ==========================================
-
-def clean_text(text):
-    if not text:
-        return ""
-    text = text.replace("\r", "\n")
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n+", "\n", text)
-    return text.strip()
-
-
-def normalize_word(word):
-    return re.sub(r"[^a-z0-9]", "", word.lower()) if word else ""
-
-
-# ==========================================
-# OCR
-# ==========================================
-
-def extract_text_from_image(image_path):
-    try:
-        api_key = os.getenv("OCR_SPACE_API_KEY", "").strip()
-
-        if not api_key:
-            return "", "OCR_SPACE_API_KEY missing"
-
-        if not image_path or not os.path.exists(image_path):
-            return "", "Image file not found"
-
-        prepared_path, prep_debug = prepare_image_for_ocr(image_path)
-
-        with open(prepared_path, "rb") as f:
-            response = requests.post(
-                "https://api.ocr.space/parse/image",
-                files={"file": f},
-                data={
-                    "apikey": api_key,
-                    "language": "eng",
-                    "isOverlayRequired": False,
-                    "OCREngine": 2,
-                    "scale": True,
-                    "detectOrientation": True,
-                },
-                timeout=60
-            )
-
-        if response.status_code != 200:
-            return "", f"{prep_debug} | OCR HTTP error: {response.status_code}"
-
-        try:
-            data = response.json()
-        except Exception:
-            return "", f"{prep_debug} | OCR invalid JSON"
-
-        if data.get("IsErroredOnProcessing"):
-            return "", f"{prep_debug} | OCR processing error"
-
-        parsed_results = data.get("ParsedResults", [])
-        if not parsed_results:
-            return "", f"{prep_debug} | No ParsedResults"
-
-        text = "\n".join(
-            item.get("ParsedText", "")
-            for item in parsed_results
-            if isinstance(item, dict)
-        ).strip()
-
-        if not text:
-            return "", f"{prep_debug} | OCR returned empty text"
-
-        return clean_text(text), f"{prep_debug} | OCR success"
-
-    except Exception as e:
-        return "", f"OCR exception: {str(e)}"
-
-
-# ==========================================
-# MEDICINE NAME EXTRACTION
-# ==========================================
-
-def extract_prescription_medicine_name(text):
-    if not text:
-        return "Not found"
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-
-    for line in lines:
-        # Example: Tab Gudcef 200mg 1-0-1
-        if re.search(r'\b(tab|tablet|cap|capsule|syr|syrup)\b', line, re.I):
-            line_clean = re.sub(r'^\s*(tab|tablet|cap|capsule|syr|syrup)\s+', '', line, flags=re.I)
-
-            # remove dosage pattern and days
-            line_clean = re.sub(r'\b\d+\s*-\s*\d+\s*-\s*\d+\b', '', line_clean, flags=re.I)
-            line_clean = re.sub(r'\bx\s*\d+\s*days?\b', '', line_clean, flags=re.I)
-            line_clean = re.sub(r'\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b', '', line_clean, flags=re.I)
-
-            # take first medicine-like words
-            words = re.findall(r'[A-Za-z0-9]+', line_clean)
-            if words:
-                medicine_words = []
-                for w in words:
-                    nw = normalize_word(w)
-                    if nw in ['mg', 'ml', 'days', 'day']:
-                        continue
-                    medicine_words.append(w)
-                    # Usually medicine name + strength
-                    if len(medicine_words) >= 2:
-                        break
-
-                if medicine_words:
-                    return " ".join(medicine_words)
-
-    return "Not found"
-
-
-# ==========================================
-# EXPIRY DATE
-# ==========================================
-
-def extract_expiry_date(text):
-    if not text:
-        return "Not found"
-
-    patterns = [
-        r"EXP[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})",
-        r"EXPIRY[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})",
-        r"\b([0-1]?\d[/\-][0-9]{4})\b",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, text, re.I)
-        if match:
-            return match.group(1).replace("-", "/")
-
-    return "Not found"
-
-
-# ==========================================
-# DOSAGE EXTRACTION (ONLY SIMPLE OUTPUT)
-# ==========================================
-
-def convert_dosage_to_text(code, days=None):
-    code = code.replace(" ", "")
-
-    dosage_map = {
-        "1-0-1": "Morning and Evening 1 tablet",
-        "1-0-0": "Morning 1 tablet",
-        "0-1-0": "Afternoon 1 tablet",
-        "0-0-1": "Evening 1 tablet",
-        "1-1-0": "Morning and Afternoon 1 tablet",
-        "1-1-1": "Morning, Afternoon and Evening 1 tablet",
-        "0-1-1": "Afternoon and Evening 1 tablet",
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Medicine & Prescription Verifier AI</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f7fb;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+      color: #1f2937;
     }
 
-    text = dosage_map.get(code, code)
+    .container {
+      max-width: 1200px;
+      margin: 24px auto;
+      background: #fff;
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+    }
 
-    if days:
-        text += f" for {days} days"
+    h1 {
+      margin-top: 0;
+      font-size: 30px;
+      color: #111827;
+      line-height: 1.3;
+    }
 
-    return text
+    .sub {
+      color: #475569;
+      font-size: 16px;
+      margin-bottom: 22px;
+      line-height: 1.6;
+    }
 
+    .voice-panel {
+      margin-bottom: 18px;
+      background: #ecfeff;
+      border: 2px solid #a5f3fc;
+      border-radius: 18px;
+      padding: 16px;
+    }
 
-def extract_days(text):
-    if not text:
-        return None
+    .voice-panel h3 {
+      margin: 0 0 10px 0;
+      color: #0f172a;
+    }
 
-    match = re.search(r'x\s*(\d+)\s*days?', text, re.I)
-    if match:
-        return match.group(1)
+    .voice-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
 
-    match = re.search(r'(\d+)\s*days?', text, re.I)
-    if match:
-        return match.group(1)
+    .yes-btn {
+      background: #16a34a;
+      color: white;
+      font-size: 18px;
+      padding: 14px 22px;
+      min-width: 140px;
+      border: none;
+      border-radius: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
 
-    return None
+    .no-btn {
+      background: #dc2626;
+      color: white;
+      font-size: 18px;
+      padding: 14px 22px;
+      min-width: 140px;
+      border: none;
+      border-radius: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
 
+    .listen-btn {
+      background: #7c3aed;
+      color: white;
+      font-size: 16px;
+      padding: 14px 22px;
+      min-width: 180px;
+      border: none;
+      border-radius: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
 
-def extract_dosage_text(text, medicine_name):
-    if not text:
-        return "Not found"
+    .stop-btn {
+      background: #111827;
+      color: white;
+      font-size: 16px;
+      padding: 14px 22px;
+      min-width: 140px;
+      border: none;
+      border-radius: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
 
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    days = extract_days(text)
+    .upload-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
 
-    for line in lines:
-        if medicine_name.lower().split()[0] in line.lower():
-            dose_match = re.search(r'\b(\d+\s*-\s*\d+\s*-\s*\d+)\b', line)
-            if dose_match:
-                return convert_dosage_to_text(dose_match.group(1), days)
+    .upload-box {
+      border: 2px dashed #cbd5e1;
+      border-radius: 18px;
+      padding: 18px;
+      background: #f8fafc;
+      text-align: left;
+    }
 
-    # fallback: first dosage pattern anywhere
-    for line in lines:
-        dose_match = re.search(r'\b(\d+\s*-\s*\d+\s*-\s*\d+)\b', line)
-        if dose_match:
-            return convert_dosage_to_text(dose_match.group(1), days)
+    .upload-box h3 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 18px;
+      color: #1f2937;
+    }
 
-    return "Not found"
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
 
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 14px 18px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
 
-# ==========================================
-# SIMPLE VOICE MESSAGE (ONLY 3 DETAILS)
-# ==========================================
+    button:hover {
+      opacity: 0.95;
+      transform: translateY(-1px);
+    }
 
-def build_voice_message(result):
-    if result.get("error"):
-        return "Please provide both prescription and medicine images."
+    .blue-btn {
+      background: #2563eb;
+      color: white;
+    }
 
-    medicine_name = result.get("medicine_name", "Not found")
-    expiry_date = result.get("expiry_date", "Not found")
-    dosage_text = result.get("dosage_text", "Not found")
+    .green-btn {
+      background: #0f766e;
+      color: white;
+      font-size: 18px;
+      padding: 16px 24px;
+      min-width: 180px;
+    }
 
-    return (
-        f"Medicine name {medicine_name}. "
-        f"Expiry date {expiry_date}. "
-        f"Dosage {dosage_text}."
-    )
+    .orange-btn {
+      background: #ea580c;
+      color: white;
+    }
 
+    .gray-btn {
+      background: #64748b;
+      color: white;
+    }
 
-# ==========================================
-# OPTIONAL SERVAM TTS
-# ==========================================
+    .red-btn {
+      background: #dc2626;
+      color: white;
+      font-size: 18px;
+      padding: 16px 24px;
+      min-width: 180px;
+    }
 
-def generate_servam_tts(text):
-    try:
-        api_key = getattr(settings, "SERVAM_API_KEY", "")
-        api_url = getattr(settings, "SERVAM_API_URL", "")
+    .action-row {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
 
-        if not api_key or not api_url or not text:
-            return None
+    .preview-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 18px;
+    }
 
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+    .preview-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 12px;
+    }
+
+    .preview-box h4 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+    }
+
+    .preview-box img {
+      width: 100%;
+      max-height: 320px;
+      object-fit: contain;
+      border-radius: 12px;
+      background: #e2e8f0;
+      min-height: 120px;
+    }
+
+    .camera-section {
+      margin-top: 20px;
+      background: #eff6ff;
+      border: 2px solid #bfdbfe;
+      border-radius: 18px;
+      padding: 16px;
+      display: none;
+    }
+
+    .camera-section.active {
+      display: block;
+    }
+
+    .camera-title {
+      font-size: 20px;
+      font-weight: bold;
+      color: #1d4ed8;
+      margin-bottom: 10px;
+    }
+
+    .camera-countdown {
+      font-size: 28px;
+      font-weight: bold;
+      color: #dc2626;
+      margin: 12px 0;
+    }
+
+    .status-box {
+      margin-top: 18px;
+      background: #f8fafc;
+      border-left: 5px solid #0f766e;
+      padding: 14px;
+      border-radius: 12px;
+      text-align: left;
+      font-size: 16px;
+      color: #334155;
+      line-height: 1.6;
+    }
+
+    .loading {
+      display: none;
+      margin-top: 18px;
+      font-size: 18px;
+      font-weight: bold;
+      color: #1d4ed8;
+    }
+
+    .loading.active {
+      display: block;
+    }
+
+    .result-box {
+      margin-top: 20px;
+      text-align: left;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 18px;
+      padding: 18px;
+    }
+
+    .result-box h2 {
+      margin-top: 0;
+      color: #0f172a;
+    }
+
+    .result-item {
+      font-size: 18px;
+      margin: 14px 0;
+      line-height: 1.7;
+    }
+
+    .result-label {
+      font-weight: bold;
+      color: #111827;
+    }
+
+    .hidden-canvas {
+      display: none;
+    }
+
+    @media (max-width: 900px) {
+      .upload-grid, .preview-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .container {
+        margin: 16px;
+        padding: 16px;
+      }
+
+      h1 {
+        font-size: 22px;
+      }
+
+      .green-btn, .red-btn, .yes-btn, .no-btn, .listen-btn, .stop-btn {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Medicine & Prescription Verifier AI</h1>
+    <p class="sub">
+      Capture or upload prescription and medicine images. App will show only:
+      Medicine name, Expiry date, and Dosage.
+    </p>
+
+    <div class="voice-panel">
+      <h3>Voice Guided Start</h3>
+      <div id="voicePromptText">App will ask Voice Guide or Manual upload.</div>
+      <div class="voice-buttons">
+        <button type="button" class="yes-btn" id="yesBtn">Yes</button>
+        <button type="button" class="no-btn" id="noBtn">No</button>
+        <button type="button" class="listen-btn" id="listenBtn">Start Voice Listening</button>
+        <button type="button" class="stop-btn" id="stopAllBtn">Stop</button>
+      </div>
+    </div>
+
+    <form id="uploadForm" method="POST" enctype="multipart/form-data">
+      {% csrf_token %}
+
+      <div class="upload-grid">
+        <div class="upload-box">
+          <h3>Prescription Image</h3>
+          <input type="file" id="prescriptionInput" name="prescription_image" accept="image/*" />
+          <input type="hidden" id="prescriptionCameraData" name="prescription_camera_data" />
+          <div class="btn-row">
+            <button type="button" class="blue-btn" id="openPrescriptionCameraBtn">Open Camera</button>
+          </div>
+        </div>
+
+        <div class="upload-box">
+          <h3>Medicine Image</h3>
+          <input type="file" id="medicineInput" name="medicine_image" accept="image/*" />
+          <input type="hidden" id="medicineCameraData" name="medicine_camera_data" />
+          <div class="btn-row">
+            <button type="button" class="blue-btn" id="openMedicineCameraBtn">Open Camera</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button type="submit" class="green-btn" id="analyzeBtn">Analyze</button>
+        <button type="button" class="red-btn" id="clearAllBtn">Clear All</button>
+      </div>
+    </form>
+
+    <div class="camera-section" id="cameraSection">
+      <div class="camera-title" id="cameraTitle">Camera</div>
+      <video id="video" autoplay playsinline muted style="width:100%; max-height:420px; border-radius:12px; background:#000;"></video>
+      <div class="camera-countdown" id="countdownText"></div>
+      <div class="btn-row" style="justify-content:center;">
+        <button type="button" class="orange-btn" id="manualCaptureBtn">Capture Now</button>
+        <button type="button" class="gray-btn" id="stopCameraBtn">Stop Camera</button>
+      </div>
+    </div>
+
+    <canvas id="canvas" class="hidden-canvas"></canvas>
+
+    <div class="preview-grid">
+      <div class="preview-box">
+        <h4>Prescription Preview</h4>
+        <img id="prescriptionPreview" alt="Prescription preview" />
+      </div>
+      <div class="preview-box">
+        <h4>Medicine Preview</h4>
+        <img id="medicinePreview" alt="Medicine preview" />
+      </div>
+    </div>
+
+    <div class="status-box" id="statusBox">
+      Ready.
+    </div>
+
+    <div class="loading" id="loadingText">Analyzing... Please wait...</div>
+
+    {% if result %}
+    <div class="result-box" id="resultBox">
+      {% if result.error %}
+        <h2 style="color:#dc2626;">Error</h2>
+        <div class="result-item">{{ result.error }}</div>
+      {% else %}
+        <h2>Result</h2>
+        <div class="result-item">
+          <span class="result-label">Medicine name:</span>
+          <span>{{ result.medicine_name }}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">Expiry date:</span>
+          <span>{{ result.expiry_date }}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">Dosage:</span>
+          <span>{{ result.dosage_text }}</span>
+        </div>
+
+        <div id="voiceResultText" style="display:none;">
+          Medicine name {{ result.medicine_name }}. Expiry date {{ result.expiry_date }}. Dosage {{ result.dosage_text }}.
+        </div>
+
+        {% if result.servam_audio_url %}
+          <audio autoplay controls style="margin-top:15px; width:100%;" id="serverAudio">
+            <source src="{{ result.servam_audio_url }}" type="audio/mpeg">
+          </audio>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+    const prescriptionInput = document.getElementById("prescriptionInput");
+    const medicineInput = document.getElementById("medicineInput");
+    const prescriptionCameraData = document.getElementById("prescriptionCameraData");
+    const medicineCameraData = document.getElementById("medicineCameraData");
+    const prescriptionPreview = document.getElementById("prescriptionPreview");
+    const medicinePreview = document.getElementById("medicinePreview");
+
+    const openPrescriptionCameraBtn = document.getElementById("openPrescriptionCameraBtn");
+    const openMedicineCameraBtn = document.getElementById("openMedicineCameraBtn");
+
+    const uploadForm = document.getElementById("uploadForm");
+    const analyzeBtn = document.getElementById("analyzeBtn");
+    const clearAllBtn = document.getElementById("clearAllBtn");
+    const stopAllBtn = document.getElementById("stopAllBtn");
+    const loadingText = document.getElementById("loadingText");
+
+    const cameraSection = document.getElementById("cameraSection");
+    const cameraTitle = document.getElementById("cameraTitle");
+    const countdownText = document.getElementById("countdownText");
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const manualCaptureBtn = document.getElementById("manualCaptureBtn");
+    const stopCameraBtn = document.getElementById("stopCameraBtn");
+
+    const statusBox = document.getElementById("statusBox");
+    const resultBox = document.getElementById("resultBox");
+
+    const yesBtn = document.getElementById("yesBtn");
+    const noBtn = document.getElementById("noBtn");
+    const listenBtn = document.getElementById("listenBtn");
+    const voicePromptText = document.getElementById("voicePromptText");
+
+    let currentStream = null;
+    let currentTarget = null;
+    let countdownInterval = null;
+    let currentStep = "mode_select";
+    let recognition = null;
+    let isListening = false;
+    let awaitingClearAllCommand = false;
+    let awaitingModeSelection = false;
+    let isFullyStopped = false;
+
+    function updateStatus(msg) {
+      statusBox.innerText = msg;
+      console.log(msg);
+    }
+
+    function updateVoicePrompt(msg) {
+      voicePromptText.innerText = msg;
+    }
+
+    function speak(text, priority = false, callback = null) {
+      if (isFullyStopped) return;
+
+      try {
+        if (priority) window.speechSynthesis.cancel();
+
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.rate = 0.95;
+        utter.pitch = 1;
+        utter.volume = 1;
+
+        utter.onend = function() {
+          if (callback && !isFullyStopped) callback();
+        };
+
+        window.speechSynthesis.speak(utter);
+      } catch (e) {
+        if (callback && !isFullyStopped) callback();
+      }
+    }
+
+    function stopSpeaking() {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+
+      const serverAudio = document.getElementById("serverAudio");
+      if (serverAudio) {
+        try {
+          serverAudio.pause();
+          serverAudio.currentTime = 0;
+        } catch (e) {}
+      }
+    }
+
+    function stopRecognition() {
+      try {
+        if (recognition && isListening) recognition.stop();
+      } catch (e) {}
+      isListening = false;
+    }
+
+    function stopEverything(showMessage = true) {
+      isFullyStopped = true;
+
+      stopSpeaking();
+      stopRecognition();
+      stopCamera();
+
+      awaitingClearAllCommand = false;
+      awaitingModeSelection = false;
+      currentStep = "stopped";
+      currentTarget = null;
+
+      cameraSection.classList.remove("active");
+
+      if (showMessage) {
+        updateStatus("Stopped. All voice and camera actions stopped.");
+        updateVoicePrompt("Stopped.");
+      }
+    }
+
+    function previewImage(imgEl, dataOrFile, isDataUrl = false) {
+      if (isDataUrl) {
+        imgEl.src = dataOrFile;
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        imgEl.src = e.target.result;
+      };
+      reader.readAsDataURL(dataOrFile);
+    }
+
+    function setupSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        updateStatus("Voice recognition not supported. Use buttons and manual upload.");
+        updateVoicePrompt("Voice recognition not supported. Use buttons and manual upload.");
+        return false;
+      }
+
+      recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        if (isFullyStopped) {
+          stopRecognition();
+          return;
         }
 
-        payload = {
-            "text": text,
-            "language": "en-IN",
-            "speaker": "female"
+        isListening = true;
+
+        if (awaitingModeSelection) {
+          updateVoicePrompt("Listening... Say Voice guide or Manual upload or Stop.");
+        } else if (awaitingClearAllCommand) {
+          updateStatus("Listening... Say Clear all or Stop.");
+          updateVoicePrompt("Listening... Say Clear all or Stop.");
+        } else {
+          updateStatus("Listening... Say Yes or No.");
+          updateVoicePrompt("Listening... Say Yes or No.");
+        }
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript.toLowerCase().trim();
+        isListening = false;
+
+        // Global STOP command
+        if (
+          transcript.includes("stop") ||
+          transcript === "stop" ||
+          transcript.includes("stap")
+        ) {
+          stopEverything(true);
+          return;
         }
 
-        response = requests.post(api_url, json=payload, headers=headers, timeout=30)
+        // Mode selection
+        if (awaitingModeSelection) {
+          if (
+            transcript.includes("voice guide") ||
+            transcript.includes("voice") ||
+            transcript.includes("guide")
+          ) {
+            awaitingModeSelection = false;
+            speak("Voice guide selected.", true, () => {
+              setTimeout(() => {
+                if (!isFullyStopped) startVoiceGuidedFlow();
+              }, 700);
+            });
+            return;
+          }
 
-        if response.status_code != 200:
-            return None
+          if (
+            transcript.includes("manual upload") ||
+            transcript.includes("manual")
+          ) {
+            awaitingModeSelection = false;
+            updateStatus("Manual upload selected.");
+            updateVoicePrompt("Manual upload selected.");
+            speak("Ok, you will start manually to upload Prescription image and Medicine image.", true);
+            return;
+          }
 
-        data = response.json()
-        return data.get("audio_url") or data.get("url")
+          speak("Please say Voice guide or Manual upload or Stop.", true, () => {
+            setTimeout(() => {
+              if (!isFullyStopped) askModeSelection();
+            }, 700);
+          });
+          return;
+        }
 
-    except Exception:
-        return None
+        // Clear all voice command mode
+        if (awaitingClearAllCommand) {
+          if (
+            transcript.includes("clear all") ||
+            transcript.includes("clear") ||
+            transcript.includes("clier all") ||
+            transcript.includes("clearal")
+          ) {
+            awaitingClearAllCommand = false;
+            speak("Clearing all data.", true, () => {
+              if (!isFullyStopped) clearAllData();
+            });
+            return;
+          } else {
+            speak("Please say Clear all or Stop.", true, () => {
+              setTimeout(() => {
+                if (!isFullyStopped) startClearAllListening();
+              }, 800);
+            });
+            return;
+          }
+        }
 
+        // Normal yes/no mode
+        if (transcript.includes("yes")) {
+          handleYes();
+        } else if (transcript.includes("no")) {
+          handleNo();
+        } else {
+          speak("I did not understand. Please say Yes or No.", true, () => {
+            setTimeout(() => {
+              if (isFullyStopped) return;
 
-# ==========================================
-# MAIN VIEW (ONLY 3 DETAILS IN RESULT)
-# ==========================================
+              if (currentStep === "start" || currentStep === "wait_second_confirm") {
+                try {
+                  if (isListening) return;
+                  recognition.start();
+                } catch (e) {}
+              }
+            }, 700);
+          });
+        }
+      };
 
-def home(request):
-    result = None
+      recognition.onerror = () => {
+        isListening = false;
+        if (isFullyStopped) return;
 
-    if request.method == "POST":
-        try:
-            prescription_path = None
-            medicine_path = None
+        if (awaitingModeSelection) {
+          updateVoicePrompt("Voice recognition failed. Click Start Voice Listening again.");
+        } else if (awaitingClearAllCommand) {
+          updateStatus("Voice recognition failed. You can say Clear all or Stop, or click buttons.");
+        } else {
+          updateStatus("Voice recognition failed. Use Yes / No buttons.");
+        }
+      };
 
-            prescription_file = request.FILES.get("prescription_image")
-            medicine_file = request.FILES.get("medicine_image")
+      recognition.onend = () => {
+        isListening = false;
+      };
 
-            if prescription_file:
-                prescription_path = save_uploaded_file(prescription_file, folder="prescriptions")
+      return true;
+    }
 
-            if medicine_file:
-                medicine_path = save_uploaded_file(medicine_file, folder="medicines")
+    function askModeSelection() {
+      if (isFullyStopped) return;
 
-            prescription_camera = request.POST.get("prescription_camera_data")
-            medicine_camera = request.POST.get("medicine_camera_data")
+      if (!recognition) {
+        const ok = setupSpeechRecognition();
+        if (!ok) return;
+      }
 
-            if not prescription_path and prescription_camera:
-                prescription_path = save_base64_image(
-                    prescription_camera,
-                    file_name="prescription_capture.jpg",
-                    folder="prescriptions"
-                )
+      stopRecognition();
+      stopSpeaking();
 
-            if not medicine_path and medicine_camera:
-                medicine_path = save_base64_image(
-                    medicine_camera,
-                    file_name="medicine_capture.jpg",
-                    folder="medicines"
-                )
+      awaitingModeSelection = true;
+      awaitingClearAllCommand = false;
+      currentStep = "mode_select";
 
-            if not prescription_path or not medicine_path:
-                result = {
-                    "error": "Please provide both prescription and medicine images."
-                }
-                return render(request, "home.html", {"result": result})
+      updateVoicePrompt("Do you want Voice Guide or Manual upload? You can also say Stop.");
 
-            # OCR
-            prescription_text, _ = extract_text_from_image(prescription_path)
-            medicine_text, _ = extract_text_from_image(medicine_path)
+      speak("Do you want Voice Guide or Manual upload? You can also say Stop.", true, () => {
+        setTimeout(() => {
+          if (isFullyStopped) return;
+          try {
+            if (isListening) return;
+            recognition.start();
+          } catch (e) {}
+        }, 900);
+      });
+    }
 
-            # Only required details
-            medicine_name = extract_prescription_medicine_name(prescription_text)
-            expiry_date = extract_expiry_date(medicine_text)
-            dosage_text = extract_dosage_text(prescription_text, medicine_name)
+    function startVoiceGuidedFlow() {
+      if (isFullyStopped) return;
 
-            result = {
-                "error": None,
-                "medicine_name": medicine_name,
-                "expiry_date": expiry_date,
-                "dosage_text": dosage_text,
-            }
+      awaitingModeSelection = false;
+      awaitingClearAllCommand = false;
+      currentStep = "start";
 
-            result["voice_message"] = build_voice_message(result)
-            result["servam_audio_url"] = generate_servam_tts(result["voice_message"])
+      updateStatus("Do you want to open First camera for Prescription image, say yes or no?");
+      updateVoicePrompt("Do you want to open First camera for Prescription image, say yes or no?");
 
-        except Exception as e:
-            result = {
-                "error": f"An error occurred: {str(e)}",
-                "medicine_name": "Not found",
-                "expiry_date": "Not found",
-                "dosage_text": "Not found",
-                "voice_message": "Unable to analyze. Please try again.",
-                "servam_audio_url": None,
-            }
+      speak("Do you want to open First camera for Prescription image, say yes or no?", true, () => {
+        setTimeout(() => {
+          if (isFullyStopped) return;
+          try {
+            if (isListening) return;
+            recognition.start();
+          } catch (e) {}
+        }, 900);
+      });
+    }
 
-    return render(request, "home.html", {"result": result})
+    function startListening() {
+      isFullyStopped = false;
+      askModeSelection();
+    }
+
+    function startClearAllListening() {
+      if (isFullyStopped) return;
+
+      if (!recognition) {
+        const ok = setupSpeechRecognition();
+        if (!ok) return;
+      }
+
+      awaitingClearAllCommand = true;
+      awaitingModeSelection = false;
+      updateStatus("Say Clear all or Stop.");
+      updateVoicePrompt("Say Clear all or Stop.");
+
+      setTimeout(() => {
+        if (isFullyStopped) return;
+        try {
+          if (isListening) return;
+          recognition.start();
+        } catch (e) {}
+      }, 500);
+    }
+
+    async function openCamera(target) {
+      if (isFullyStopped) return;
+
+      try {
+        stopRecognition();
+        stopSpeaking();
+        stopCamera();
+
+        currentTarget = target;
+        cameraSection.classList.add("active");
+
+        cameraTitle.innerText = target === "prescription"
+          ? "Prescription Camera (Auto capture in 8 seconds)"
+          : "Medicine Camera (Auto capture in 8 seconds)";
+
+        updateStatus(target === "prescription"
+          ? "Opening prescription camera..."
+          : "Opening medicine camera...");
+
+        currentStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+
+        if (isFullyStopped) {
+          stopCamera();
+          return;
+        }
+
+        video.srcObject = currentStream;
+        await video.play();
+
+        setTimeout(() => {
+          if (!isFullyStopped) startCountdownAndAutoCapture(8);
+        }, 500);
+
+      } catch (error) {
+        console.error("Camera open failed:", error);
+        updateStatus("Camera access failed. Please allow camera permission and try again.");
+        speak("Camera access failed. Please allow camera permission and try again.", true);
+      }
+    }
+
+    function stopCamera() {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
+
+      countdownText.innerText = "";
+
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+      }
+
+      video.srcObject = null;
+    }
+
+    function captureCurrentFrame() {
+      if (isFullyStopped) return false;
+      if (!video.videoWidth || !video.videoHeight || !currentTarget) return false;
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+
+      if (currentTarget === "prescription") {
+        prescriptionCameraData.value = dataUrl;
+        prescriptionInput.value = "";
+        previewImage(prescriptionPreview, dataUrl, true);
+
+        updateStatus("Prescription captured successfully.");
+        stopCamera();
+        cameraSection.classList.remove("active");
+
+        speak("Prescription image captured.", true, () => {
+          setTimeout(() => {
+            if (!isFullyStopped) askSecondCamera();
+          }, 800);
+        });
+
+      } else if (currentTarget === "medicine") {
+        medicineCameraData.value = dataUrl;
+        medicineInput.value = "";
+        previewImage(medicinePreview, dataUrl, true);
+
+        updateStatus("Medicine captured successfully.");
+        stopCamera();
+        cameraSection.classList.remove("active");
+
+        speak("Medicine image captured.", true, () => {
+          setTimeout(() => {
+            if (!isFullyStopped) safeAutoSubmitAnalyze();
+          }, 800);
+        });
+      }
+
+      return true;
+    }
+
+    function startCountdownAndAutoCapture(seconds) {
+      if (isFullyStopped) return;
+
+      let timeLeft = seconds;
+      countdownText.innerText = `Capturing in ${timeLeft}...`;
+
+      countdownInterval = setInterval(() => {
+        if (isFullyStopped) {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+          countdownText.innerText = "";
+          return;
+        }
+
+        timeLeft--;
+
+        if (timeLeft > 0) {
+          countdownText.innerText = `Capturing in ${timeLeft}...`;
+        } else {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+          countdownText.innerText = "Capturing now...";
+
+          setTimeout(() => {
+            if (!isFullyStopped) captureCurrentFrame();
+          }, 400);
+        }
+      }, 1000);
+    }
+
+    function askSecondCamera() {
+      if (isFullyStopped) return;
+
+      currentStep = "wait_second_confirm";
+      updateStatus("Do you want to open second camera for Medicine image, say yes or no?");
+      updateVoicePrompt("Do you want to open second camera for Medicine image, say yes or no?");
+
+      speak("Do you want to open second camera for Medicine image, say yes or no?", true, () => {
+        setTimeout(() => {
+          if (isFullyStopped) return;
+          try {
+            if (isListening) return;
+            recognition.start();
+          } catch (e) {}
+        }, 1000);
+      });
+    }
+
+    function handleYes() {
+      if (isFullyStopped) return;
+
+      stopRecognition();
+      stopSpeaking();
+
+      if (currentStep === "start") {
+        currentStep = "opening_first";
+        updateStatus("Yes received. Opening first camera.");
+        updateVoicePrompt("Yes received. Opening first camera.");
+
+        setTimeout(() => {
+          if (!isFullyStopped) openCamera("prescription");
+        }, 700);
+
+      } else if (currentStep === "wait_second_confirm") {
+        currentStep = "opening_second";
+        updateStatus("Yes received. Opening second camera.");
+        updateVoicePrompt("Yes received. Opening second camera.");
+
+        setTimeout(() => {
+          if (!isFullyStopped) openCamera("medicine");
+        }, 1000);
+      }
+    }
+
+    function handleNo() {
+      if (isFullyStopped) return;
+
+      stopRecognition();
+      stopSpeaking();
+
+      updateStatus("Process cancelled.");
+      updateVoicePrompt("Process cancelled.");
+      speak("Okay. Process cancelled.", true);
+    }
+
+    function hasPrescription() {
+      return prescriptionInput.files.length > 0 || prescriptionCameraData.value.trim() !== "";
+    }
+
+    function hasMedicine() {
+      return medicineInput.files.length > 0 || medicineCameraData.value.trim() !== "";
+    }
+
+    function autoSubmitAnalyze() {
+      if (isFullyStopped) return;
+
+      if (!hasPrescription() || !hasMedicine()) {
+        updateStatus("Both images are required before analysis.");
+        speak("Both images are required before analysis.", true);
+        return;
+      }
+
+      currentStep = "done";
+      updateStatus("Now analysis going on.");
+      updateVoicePrompt("Now analysis going on.");
+
+      speak("Now analysis going on.", true, () => {
+        if (isFullyStopped) return;
+
+        loadingText.classList.add("active");
+        analyzeBtn.disabled = true;
+        analyzeBtn.innerText = "Analyzing...";
+
+        setTimeout(() => {
+          if (!isFullyStopped) uploadForm.submit();
+        }, 800);
+      });
+    }
+
+    function safeAutoSubmitAnalyze() {
+      if (isFullyStopped) return;
+
+      if (hasPrescription() && hasMedicine()) {
+        autoSubmitAnalyze();
+        return;
+      }
+
+      setTimeout(() => {
+        if (isFullyStopped) return;
+
+        if (hasPrescription() && hasMedicine()) {
+          autoSubmitAnalyze();
+        } else {
+          updateStatus("Capture incomplete. Please retake images.");
+          speak("Capture incomplete. Please retake both images.", true);
+        }
+      }, 1000);
+    }
+
+    function clearAllData() {
+      stopSpeaking();
+      stopRecognition();
+      stopCamera();
+
+      isFullyStopped = false;
+      currentTarget = null;
+      currentStep = "mode_select";
+      awaitingClearAllCommand = false;
+      awaitingModeSelection = false;
+
+      prescriptionInput.value = "";
+      medicineInput.value = "";
+      prescriptionCameraData.value = "";
+      medicineCameraData.value = "";
+
+      prescriptionPreview.src = "";
+      medicinePreview.src = "";
+
+      loadingText.classList.remove("active");
+      analyzeBtn.disabled = false;
+      analyzeBtn.innerText = "Analyze";
+
+      if (resultBox) {
+        resultBox.style.display = "none";
+      }
+
+      cameraSection.classList.remove("active");
+
+      updateStatus("Ready.");
+      updateVoicePrompt("All details cleared. Ready for new scan.");
+
+      speak("All details cleared. Ready for new scan.", true, () => {
+        setTimeout(() => {
+          if (!isFullyStopped) askModeSelection();
+        }, 900);
+      });
+    }
+
+    // Button actions
+    yesBtn.addEventListener("click", () => {
+      isFullyStopped = false;
+      handleYes();
+    });
+
+    noBtn.addEventListener("click", () => {
+      isFullyStopped = false;
+      handleNo();
+    });
+
+    listenBtn.addEventListener("click", startListening);
+
+    stopAllBtn.addEventListener("click", () => {
+      stopEverything(true);
+    });
+
+    openPrescriptionCameraBtn.addEventListener("click", () => {
+      isFullyStopped = false;
+      currentStep = "opening_first";
+      awaitingClearAllCommand = false;
+      awaitingModeSelection = false;
+      openCamera("prescription");
+    });
+
+    openMedicineCameraBtn.addEventListener("click", () => {
+      isFullyStopped = false;
+      currentStep = "opening_second";
+      awaitingClearAllCommand = false;
+      awaitingModeSelection = false;
+      openCamera("medicine");
+    });
+
+    manualCaptureBtn.addEventListener("click", () => {
+      captureCurrentFrame();
+    });
+
+    stopCameraBtn.addEventListener("click", () => {
+      stopCamera();
+      cameraSection.classList.remove("active");
+      updateStatus("Camera stopped.");
+    });
+
+    clearAllBtn.addEventListener("click", clearAllData);
+
+    prescriptionInput.addEventListener("change", function() {
+      if (this.files && this.files[0]) {
+        isFullyStopped = false;
+        prescriptionCameraData.value = "";
+        previewImage(prescriptionPreview, this.files[0]);
+      }
+    });
+
+    medicineInput.addEventListener("change", function() {
+      if (this.files && this.files[0]) {
+        isFullyStopped = false;
+        medicineCameraData.value = "";
+        previewImage(medicinePreview, this.files[0]);
+      }
+    });
+
+    uploadForm.addEventListener("submit", function(e) {
+      if (isFullyStopped) {
+        e.preventDefault();
+        return;
+      }
+
+      if (!hasPrescription() || !hasMedicine()) {
+        e.preventDefault();
+        updateStatus("Please provide both prescription and medicine images.");
+        speak("Please provide both prescription and medicine images.", true);
+        return;
+      }
+
+      loadingText.classList.add("active");
+      analyzeBtn.disabled = true;
+      analyzeBtn.innerText = "Analyzing...";
+      updateStatus("Analyzing images...");
+    });
+
+    window.addEventListener("load", () => {
+      updateStatus("Ready.");
+
+      const voiceResultText = document.getElementById("voiceResultText");
+
+      if (voiceResultText && voiceResultText.innerText.trim()) {
+        setTimeout(() => {
+          if (isFullyStopped) return;
+
+          speak("Analysis completed. Reading result now.", true, () => {
+            setTimeout(() => {
+              if (isFullyStopped) return;
+
+              speak(voiceResultText.innerText, true, () => {
+                setTimeout(() => {
+                  if (isFullyStopped) return;
+
+                  speak("Say Clear all to clear all datas and ready for new.", true, () => {
+                    setTimeout(() => {
+                      if (!isFullyStopped) startClearAllListening();
+                    }, 700);
+                  });
+                }, 700);
+              });
+            }, 700);
+          });
+        }, 1500);
+      } else {
+        setTimeout(() => {
+          if (!isFullyStopped) askModeSelection();
+        }, 1000);
+      }
+    });
+  </script>
+</body>
+</html>
