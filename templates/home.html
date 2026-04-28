@@ -299,6 +299,12 @@
       display: none;
     }
 
+    .camera-tip {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #475569;
+    }
+
     @media (max-width: 900px) {
       .upload-grid, .preview-grid {
         grid-template-columns: 1fr;
@@ -376,6 +382,9 @@
         <button type="button" class="orange-btn" id="manualCaptureBtn">Capture Now</button>
         <button type="button" class="gray-btn" id="stopCameraBtn">Stop Camera</button>
       </div>
+      <div class="camera-tip">
+        Chromebook Tip: If camera does not open, allow browser camera permission and use HTTPS or localhost.
+      </div>
     </div>
 
     <canvas id="canvas" class="hidden-canvas"></canvas>
@@ -391,10 +400,7 @@
       </div>
     </div>
 
-    <div class="status-box" id="statusBox">
-      Ready.
-    </div>
-
+    <div class="status-box" id="statusBox">Ready.</div>
     <div class="loading" id="loadingText">Analyzing... Please wait...</div>
 
     {% if result %}
@@ -494,6 +500,16 @@
         utter.pitch = 1;
         utter.volume = 1;
 
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = voices.find(v =>
+          v.lang && (
+            v.lang.toLowerCase().includes("en-in") ||
+            v.lang.toLowerCase().includes("en_gb") ||
+            v.lang.toLowerCase().includes("en-us")
+          )
+        );
+        if (preferred) utter.voice = preferred;
+
         utter.onend = function() {
           if (callback && !isFullyStopped) callback();
         };
@@ -591,23 +607,13 @@
         const transcript = event.results[0][0].transcript.toLowerCase().trim();
         isListening = false;
 
-        // Global STOP command
-        if (
-          transcript.includes("stop") ||
-          transcript === "stop" ||
-          transcript.includes("stap")
-        ) {
+        if (transcript.includes("stop") || transcript === "stop") {
           stopEverything(true);
           return;
         }
 
-        // Mode selection
         if (awaitingModeSelection) {
-          if (
-            transcript.includes("voice guide") ||
-            transcript.includes("voice") ||
-            transcript.includes("guide")
-          ) {
+          if (transcript.includes("voice guide") || transcript.includes("voice") || transcript.includes("guide")) {
             awaitingModeSelection = false;
             speak("Voice guide selected.", true, () => {
               setTimeout(() => {
@@ -617,14 +623,11 @@
             return;
           }
 
-          if (
-            transcript.includes("manual upload") ||
-            transcript.includes("manual")
-          ) {
+          if (transcript.includes("manual upload") || transcript.includes("manual")) {
             awaitingModeSelection = false;
             updateStatus("Manual upload selected.");
             updateVoicePrompt("Manual upload selected.");
-            speak("Ok, you will start manually to upload Prescription image and Medicine image.", true);
+            speak("Okay, you can manually upload prescription image and medicine image.", true);
             return;
           }
 
@@ -636,14 +639,8 @@
           return;
         }
 
-        // Clear all voice command mode
         if (awaitingClearAllCommand) {
-          if (
-            transcript.includes("clear all") ||
-            transcript.includes("clear") ||
-            transcript.includes("clier all") ||
-            transcript.includes("clearal")
-          ) {
+          if (transcript.includes("clear all") || transcript.includes("clear")) {
             awaitingClearAllCommand = false;
             speak("Clearing all data.", true, () => {
               if (!isFullyStopped) clearAllData();
@@ -659,7 +656,6 @@
           }
         }
 
-        // Normal yes/no mode
         if (transcript.includes("yes")) {
           handleYes();
         } else if (transcript.includes("no")) {
@@ -668,7 +664,6 @@
           speak("I did not understand. Please say Yes or No.", true, () => {
             setTimeout(() => {
               if (isFullyStopped) return;
-
               if (currentStep === "start" || currentStep === "wait_second_confirm") {
                 try {
                   if (isListening) return;
@@ -776,6 +771,10 @@
       }, 500);
     }
 
+    async function tryOpenCameraWithConstraints(constraints) {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    }
+
     async function openCamera(target) {
       if (isFullyStopped) return;
 
@@ -783,6 +782,12 @@
         stopRecognition();
         stopSpeaking();
         stopCamera();
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          updateStatus("Camera not supported in this browser.");
+          speak("Camera not supported in this browser.", true);
+          return;
+        }
 
         currentTarget = target;
         cameraSection.classList.add("active");
@@ -795,31 +800,80 @@
           ? "Opening prescription camera..."
           : "Opening medicine camera...");
 
-        currentStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
+        let stream = null;
 
-        if (isFullyStopped) {
-          stopCamera();
-          return;
+        // Chromebook safe fallback order
+        const tryList = [
+          {
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          },
+          {
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          },
+          {
+            video: true,
+            audio: false
+          }
+        ];
+
+        let lastError = null;
+
+        for (const constraints of tryList) {
+          try {
+            stream = await tryOpenCameraWithConstraints(constraints);
+            if (stream) break;
+          } catch (err) {
+            lastError = err;
+          }
         }
 
+        if (!stream) {
+          throw lastError || new Error("Camera access failed");
+        }
+
+        currentStream = stream;
+        video.setAttribute("autoplay", "true");
+        video.setAttribute("playsinline", "true");
+        video.setAttribute("muted", "true");
+        video.muted = true;
         video.srcObject = currentStream;
-        await video.play();
+
+        // Chromebook safe play
+        try {
+          await video.play();
+        } catch (e) {
+          setTimeout(async () => {
+            try { await video.play(); } catch (err) {}
+          }, 300);
+        }
+
+        // Wait until metadata loaded
+        await new Promise((resolve) => {
+          if (video.readyState >= 2) {
+            resolve();
+          } else {
+            video.onloadedmetadata = () => resolve();
+          }
+        });
 
         setTimeout(() => {
           if (!isFullyStopped) startCountdownAndAutoCapture(8);
-        }, 500);
+        }, 800);
 
       } catch (error) {
         console.error("Camera open failed:", error);
-        updateStatus("Camera access failed. Please allow camera permission and try again.");
-        speak("Camera access failed. Please allow camera permission and try again.", true);
+        cameraSection.classList.remove("active");
+        updateStatus("Camera access failed. Please allow camera permission and use HTTPS or localhost.");
+        speak("Camera access failed. Please allow camera permission and use HTTPS or localhost.", true);
       }
     }
 
@@ -832,16 +886,27 @@
       countdownText.innerText = "";
 
       if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
+        currentStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) {}
+        });
         currentStream = null;
       }
 
+      try {
+        video.pause();
+      } catch (e) {}
+
       video.srcObject = null;
+      video.removeAttribute("src");
+      video.load();
     }
 
     function captureCurrentFrame() {
       if (isFullyStopped) return false;
-      if (!video.videoWidth || !video.videoHeight || !currentTarget) return false;
+      if (!video.videoWidth || !video.videoHeight || !currentTarget) {
+        updateStatus("Camera frame not ready. Please wait 1 second and try again.");
+        return false;
+      }
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -1063,7 +1128,7 @@
       });
     }
 
-    // Button actions
+    // Buttons
     yesBtn.addEventListener("click", () => {
       isFullyStopped = false;
       handleYes();
@@ -1074,26 +1139,31 @@
       handleNo();
     });
 
-    listenBtn.addEventListener("click", startListening);
+    listenBtn.addEventListener("click", () => {
+      isFullyStopped = false;
+      // Important for Chromebook: user gesture unlocks speech voices
+      window.speechSynthesis.getVoices();
+      startListening();
+    });
 
     stopAllBtn.addEventListener("click", () => {
       stopEverything(true);
     });
 
-    openPrescriptionCameraBtn.addEventListener("click", () => {
+    openPrescriptionCameraBtn.addEventListener("click", async () => {
       isFullyStopped = false;
       currentStep = "opening_first";
       awaitingClearAllCommand = false;
       awaitingModeSelection = false;
-      openCamera("prescription");
+      await openCamera("prescription");
     });
 
-    openMedicineCameraBtn.addEventListener("click", () => {
+    openMedicineCameraBtn.addEventListener("click", async () => {
       isFullyStopped = false;
       currentStep = "opening_second";
       awaitingClearAllCommand = false;
       awaitingModeSelection = false;
-      openCamera("medicine");
+      await openCamera("medicine");
     });
 
     manualCaptureBtn.addEventListener("click", () => {
@@ -1145,6 +1215,11 @@
 
     window.addEventListener("load", () => {
       updateStatus("Ready.");
+
+      // load voices once (Chromebook safe)
+      try {
+        window.speechSynthesis.getVoices();
+      } catch (e) {}
 
       const voiceResultText = document.getElementById("voiceResultText");
 
