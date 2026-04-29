@@ -391,9 +391,7 @@
       </div>
     </div>
 
-    <div class="status-box" id="statusBox">
-      Ready.
-    </div>
+    <div class="status-box" id="statusBox">Ready.</div>
 
     <div class="loading" id="loadingText">Analyzing... Please wait...</div>
 
@@ -471,9 +469,10 @@
     let isListening = false;
     let isFullyStopped = false;
     let isOpeningCamera = false;
+    let isSpeaking = false;
+    let pendingNextAction = null;
 
-    // simple flow states:
-    // start_prompt -> waiting_first -> waiting_second -> done
+    // start_prompt -> first_opening -> waiting_second -> second_opening -> done
     let flowStep = "start_prompt";
     let awaitingClearAllCommand = false;
 
@@ -494,7 +493,9 @@
       if (isFullyStopped) return;
 
       try {
-        if (priority) window.speechSynthesis.cancel();
+        if (priority) {
+          window.speechSynthesis.cancel();
+        }
 
         const utter = new SpeechSynthesisUtterance(text);
         utter.rate = 0.95;
@@ -502,18 +503,30 @@
         utter.volume = 1;
         utter.lang = "en-IN";
 
+        isSpeaking = true;
+
         utter.onend = function() {
+          isSpeaking = false;
+          if (callback && !isFullyStopped) callback();
+        };
+
+        utter.onerror = function() {
+          isSpeaking = false;
           if (callback && !isFullyStopped) callback();
         };
 
         window.speechSynthesis.speak(utter);
       } catch (e) {
+        isSpeaking = false;
         if (callback && !isFullyStopped) callback();
       }
     }
 
     function stopSpeaking() {
-      try { window.speechSynthesis.cancel(); } catch (e) {}
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+      isSpeaking = false;
 
       const serverAudio = document.getElementById("serverAudio");
       if (serverAudio) {
@@ -534,6 +547,7 @@
     function stopEverything(showMessage = true) {
       isFullyStopped = true;
       isOpeningCamera = false;
+      pendingNextAction = null;
 
       stopSpeaking();
       stopRecognition();
@@ -656,11 +670,11 @@
       stopRecognition();
 
       setTimeout(() => {
-        if (isFullyStopped) return;
+        if (isFullyStopped || isSpeaking) return;
         try {
           if (!isListening) recognition.start();
         } catch (e) {}
-      }, 300);
+      }, 500);
     }
 
     function askStartPrompt() {
@@ -675,7 +689,7 @@
       speak("Do you want to start voice guide? Say yes or no.", true, () => {
         setTimeout(() => {
           if (!isFullyStopped) startVoiceListeningOnly();
-        }, 700);
+        }, 900);
       });
     }
 
@@ -684,10 +698,10 @@
 
       flowStep = "waiting_second";
 
-      updateStatus("Do you want to open second camera for Medicine image? Say yes or no.");
-      updateVoicePrompt("Do you want to open second camera for Medicine image? Say yes or no.");
+      updateStatus("Do you want to open second camera for medicine image? Say yes or no.");
+      updateVoicePrompt("Do you want to open second camera for medicine image? Say yes or no.");
 
-      speak("Do you want to open second camera for Medicine image? Say yes or no.", true, () => {
+      speak("Do you want to open second camera for medicine image? Say yes or no.", true, () => {
         setTimeout(() => {
           if (!isFullyStopped) startVoiceListeningOnly();
         }, 900);
@@ -714,8 +728,7 @@
 
       try { video.srcObject = null; } catch (e) {}
 
-      // Important for Chromebook / Chrome mobile
-      await sleep(1200);
+      await sleep(1400);
     }
 
     async function openCamera(target) {
@@ -762,9 +775,9 @@
 
         video.srcObject = currentStream;
 
-        await sleep(300);
+        await sleep(400);
         await video.play();
-        await sleep(700);
+        await sleep(800);
 
         if (!isFullyStopped) {
           startCountdownAndAutoCapture(8);
@@ -827,6 +840,8 @@
         stopCamera();
         cameraSection.classList.remove("active");
 
+        flowStep = "waiting_second";
+
         speak("Prescription image captured.", true, () => {
           setTimeout(() => {
             if (!isFullyStopped) askSecondCamera();
@@ -843,6 +858,8 @@
 
         stopCamera();
         cameraSection.classList.remove("active");
+
+        flowStep = "done";
 
         speak("Medicine image captured.", true, () => {
           setTimeout(() => {
@@ -886,9 +903,37 @@
                 speak("Capture failed. Please click Capture Now.", true);
               }
             }
-          }, 500);
+          }, 600);
         }
       }, 1000);
+    }
+
+    function openFirstCameraNow() {
+      if (isFullyStopped) return;
+
+      pendingNextAction = null;
+      flowStep = "first_opening";
+
+      updateStatus("Yes received. Opening first camera.");
+      updateVoicePrompt("Yes received. Opening first camera.");
+
+      setTimeout(() => {
+        if (!isFullyStopped) openCamera("prescription");
+      }, 700);
+    }
+
+    function openSecondCameraNow() {
+      if (isFullyStopped) return;
+
+      pendingNextAction = null;
+      flowStep = "second_opening";
+
+      updateStatus("Yes received. Opening second camera.");
+      updateVoicePrompt("Yes received. Opening second camera.");
+
+      setTimeout(() => {
+        if (!isFullyStopped) openCamera("medicine");
+      }, 900);
     }
 
     function handleYes() {
@@ -897,26 +942,19 @@
       stopRecognition();
       stopSpeaking();
 
-      if (flowStep === "start_prompt") {
-        flowStep = "waiting_first";
-        updateStatus("Yes received. Opening first camera.");
-        updateVoicePrompt("Yes received. Opening first camera.");
-
-        setTimeout(() => {
-          if (!isFullyStopped) openCamera("prescription");
-        }, 900);
+      // YES button must always work instantly
+      if (flowStep === "start_prompt" || flowStep === "first_opening") {
+        openFirstCameraNow();
         return;
       }
 
-      if (flowStep === "waiting_second") {
-        updateStatus("Yes received. Opening second camera.");
-        updateVoicePrompt("Yes received. Opening second camera.");
-
-        setTimeout(() => {
-          if (!isFullyStopped) openCamera("medicine");
-        }, 1500);
+      if (flowStep === "waiting_second" || flowStep === "second_opening") {
+        openSecondCameraNow();
         return;
       }
+
+      // fallback
+      openFirstCameraNow();
     }
 
     function handleNo() {
@@ -972,7 +1010,7 @@
 
         setTimeout(() => {
           if (!isFullyStopped) uploadForm.submit();
-        }, 800);
+        }, 900);
       });
     }
 
@@ -994,7 +1032,7 @@
           updateVoicePrompt("Capture incomplete. Please provide both images.");
           speak("Capture incomplete. Please provide both images.", true);
         }
-      }, 1000);
+      }, 1200);
     }
 
     function clearAllData() {
@@ -1004,6 +1042,8 @@
 
       isFullyStopped = false;
       isOpeningCamera = false;
+      isSpeaking = false;
+      pendingNextAction = null;
       currentTarget = null;
       awaitingClearAllCommand = false;
       flowStep = "start_prompt";
@@ -1062,6 +1102,8 @@
 
     listenBtn.addEventListener("click", () => {
       isFullyStopped = false;
+      stopSpeaking();
+      stopRecognition();
       askStartPrompt();
     });
 
@@ -1071,16 +1113,18 @@
 
     openPrescriptionCameraBtn.addEventListener("click", () => {
       isFullyStopped = false;
-      flowStep = "waiting_first";
       awaitingClearAllCommand = false;
-      openCamera("prescription");
+      stopSpeaking();
+      stopRecognition();
+      openFirstCameraNow();
     });
 
     openMedicineCameraBtn.addEventListener("click", () => {
       isFullyStopped = false;
-      flowStep = "waiting_second";
       awaitingClearAllCommand = false;
-      openCamera("medicine");
+      stopSpeaking();
+      stopRecognition();
+      openSecondCameraNow();
     });
 
     manualCaptureBtn.addEventListener("click", () => {
