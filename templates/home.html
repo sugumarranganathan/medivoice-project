@@ -17,7 +17,7 @@
     }
 
     .container {
-      max-width: 1200px;
+      max-width: 1100px;
       margin: 24px auto;
       background: #fff;
       border-radius: 20px;
@@ -330,7 +330,7 @@
 
     <div class="voice-panel">
       <h3>Voice Guided Start</h3>
-      <div id="voicePromptText">App will ask Voice Guide or Manual upload.</div>
+      <div id="voicePromptText">Do you want to start voice guide? Say Yes or No.</div>
       <div class="voice-buttons">
         <button type="button" class="yes-btn" id="yesBtn">Yes</button>
         <button type="button" class="no-btn" id="noBtn">No</button>
@@ -467,13 +467,15 @@
     let currentStream = null;
     let currentTarget = null;
     let countdownInterval = null;
-    let currentStep = "mode_select";
     let recognition = null;
     let isListening = false;
-    let awaitingClearAllCommand = false;
-    let awaitingModeSelection = false;
     let isFullyStopped = false;
     let isOpeningCamera = false;
+
+    // simple flow states:
+    // start_prompt -> waiting_first -> waiting_second -> done
+    let flowStep = "start_prompt";
+    let awaitingClearAllCommand = false;
 
     function updateStatus(msg) {
       statusBox.innerText = msg;
@@ -537,12 +539,9 @@
       stopRecognition();
       stopCamera();
 
-      awaitingClearAllCommand = false;
-      awaitingModeSelection = false;
-      currentStep = "stopped";
-      currentTarget = null;
-
       cameraSection.classList.remove("active");
+      awaitingClearAllCommand = false;
+      flowStep = "stopped";
 
       if (showMessage) {
         updateStatus("Stopped. All voice and camera actions stopped.");
@@ -555,6 +554,7 @@
         imgEl.src = dataOrFile;
         return;
       }
+
       const reader = new FileReader();
       reader.onload = function(e) {
         imgEl.src = e.target.result;
@@ -565,8 +565,8 @@
     function setupSpeechRecognition() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        updateStatus("Voice recognition not supported. Use buttons and manual upload.");
-        updateVoicePrompt("Voice recognition not supported. Use buttons and manual upload.");
+        updateStatus("Voice recognition not supported. Use buttons or manual upload.");
+        updateVoicePrompt("Voice recognition not supported. Use buttons or manual upload.");
         return false;
       }
 
@@ -584,9 +584,7 @@
 
         isListening = true;
 
-        if (awaitingModeSelection) {
-          updateVoicePrompt("Listening... Say Voice guide or Manual upload or Stop.");
-        } else if (awaitingClearAllCommand) {
+        if (awaitingClearAllCommand) {
           updateStatus("Listening... Say Clear all or Stop.");
           updateVoicePrompt("Listening... Say Clear all or Stop.");
         } else {
@@ -604,33 +602,6 @@
           return;
         }
 
-        if (awaitingModeSelection) {
-          if (transcript.includes("voice")) {
-            awaitingModeSelection = false;
-            speak("Voice guide selected.", true, () => {
-              setTimeout(() => {
-                if (!isFullyStopped) startVoiceGuidedFlow();
-              }, 700);
-            });
-            return;
-          }
-
-          if (transcript.includes("manual")) {
-            awaitingModeSelection = false;
-            updateStatus("Manual upload selected.");
-            updateVoicePrompt("Manual upload selected.");
-            speak("Ok, manual upload selected.", true);
-            return;
-          }
-
-          speak("Please say Voice guide or Manual upload or Stop.", true, () => {
-            setTimeout(() => {
-              if (!isFullyStopped) askModeSelection();
-            }, 700);
-          });
-          return;
-        }
-
         if (awaitingClearAllCommand) {
           if (transcript.includes("clear")) {
             awaitingClearAllCommand = false;
@@ -642,7 +613,7 @@
             speak("Please say Clear all or Stop.", true, () => {
               setTimeout(() => {
                 if (!isFullyStopped) startClearAllListening();
-              }, 800);
+              }, 700);
             });
             return;
           }
@@ -655,12 +626,7 @@
         } else {
           speak("I did not understand. Please say Yes or No.", true, () => {
             setTimeout(() => {
-              if (isFullyStopped) return;
-              if (currentStep === "start" || currentStep === "wait_second_confirm") {
-                try {
-                  if (!isListening) recognition.start();
-                } catch (e) {}
-              }
+              if (!isFullyStopped) startVoiceListeningOnly();
             }, 700);
           });
         }
@@ -669,14 +635,7 @@
       recognition.onerror = () => {
         isListening = false;
         if (isFullyStopped) return;
-
-        if (awaitingModeSelection) {
-          updateVoicePrompt("Voice recognition failed. Click Start Voice Listening again.");
-        } else if (awaitingClearAllCommand) {
-          updateStatus("Voice recognition failed. You can say Clear all or Stop, or click buttons.");
-        } else {
-          updateStatus("Voice recognition failed. Use Yes / No buttons.");
-        }
+        updateStatus("Voice recognition failed. Use Yes / No buttons.");
       };
 
       recognition.onend = () => {
@@ -686,7 +645,7 @@
       return true;
     }
 
-    function askModeSelection() {
+    function startVoiceListeningOnly() {
       if (isFullyStopped) return;
 
       if (!recognition) {
@@ -695,68 +654,44 @@
       }
 
       stopRecognition();
-      stopSpeaking();
-
-      awaitingModeSelection = true;
-      awaitingClearAllCommand = false;
-      currentStep = "mode_select";
-
-      updateVoicePrompt("Do you want Voice Guide or Manual upload? You can also say Stop.");
-
-      speak("Do you want Voice Guide or Manual upload? You can also say Stop.", true, () => {
-        setTimeout(() => {
-          if (isFullyStopped) return;
-          try {
-            if (!isListening) recognition.start();
-          } catch (e) {}
-        }, 900);
-      });
-    }
-
-    function startVoiceGuidedFlow() {
-      if (isFullyStopped) return;
-
-      awaitingModeSelection = false;
-      awaitingClearAllCommand = false;
-      currentStep = "start";
-
-      updateStatus("Do you want to open First camera for Prescription image, say yes or no?");
-      updateVoicePrompt("Do you want to open First camera for Prescription image, say yes or no?");
-
-      speak("Do you want to open First camera for Prescription image, say yes or no?", true, () => {
-        setTimeout(() => {
-          if (isFullyStopped) return;
-          try {
-            if (!isListening) recognition.start();
-          } catch (e) {}
-        }, 900);
-      });
-    }
-
-    function startListening() {
-      isFullyStopped = false;
-      askModeSelection();
-    }
-
-    function startClearAllListening() {
-      if (isFullyStopped) return;
-
-      if (!recognition) {
-        const ok = setupSpeechRecognition();
-        if (!ok) return;
-      }
-
-      awaitingClearAllCommand = true;
-      awaitingModeSelection = false;
-      updateStatus("Say Clear all or Stop.");
-      updateVoicePrompt("Say Clear all or Stop.");
 
       setTimeout(() => {
         if (isFullyStopped) return;
         try {
           if (!isListening) recognition.start();
         } catch (e) {}
-      }, 500);
+      }, 300);
+    }
+
+    function askStartPrompt() {
+      if (isFullyStopped) return;
+
+      flowStep = "start_prompt";
+      awaitingClearAllCommand = false;
+
+      updateStatus("Do you want to start voice guide? Say yes or no.");
+      updateVoicePrompt("Do you want to start voice guide? Say yes or no.");
+
+      speak("Do you want to start voice guide? Say yes or no.", true, () => {
+        setTimeout(() => {
+          if (!isFullyStopped) startVoiceListeningOnly();
+        }, 700);
+      });
+    }
+
+    function askSecondCamera() {
+      if (isFullyStopped) return;
+
+      flowStep = "waiting_second";
+
+      updateStatus("Do you want to open second camera for Medicine image? Say yes or no.");
+      updateVoicePrompt("Do you want to open second camera for Medicine image? Say yes or no.");
+
+      speak("Do you want to open second camera for Medicine image? Say yes or no.", true, () => {
+        setTimeout(() => {
+          if (!isFullyStopped) startVoiceListeningOnly();
+        }, 900);
+      });
     }
 
     async function fullyReleaseCamera() {
@@ -767,9 +702,7 @@
 
       countdownText.innerText = "";
 
-      if (video) {
-        try { video.pause(); } catch (e) {}
-      }
+      try { video.pause(); } catch (e) {}
 
       if (currentStream) {
         const tracks = currentStream.getTracks();
@@ -779,11 +712,9 @@
         currentStream = null;
       }
 
-      if (video) {
-        try { video.srcObject = null; } catch (e) {}
-      }
+      try { video.srcObject = null; } catch (e) {}
 
-      // VERY IMPORTANT FOR CHROMEBOOK / CHROME MOBILE
+      // Important for Chromebook / Chrome mobile
       await sleep(1200);
     }
 
@@ -842,6 +773,7 @@
       } catch (error) {
         console.error("Camera open failed:", error);
         updateStatus("Camera access failed. Please allow camera permission and try again.");
+        updateVoicePrompt("Camera access failed. Please allow camera permission and try again.");
         speak("Camera access failed. Please allow camera permission and try again.", true);
       } finally {
         isOpeningCamera = false;
@@ -890,13 +822,15 @@
         previewImage(prescriptionPreview, dataUrl, true);
 
         updateStatus("Prescription captured successfully.");
+        updateVoicePrompt("Prescription captured successfully.");
+
         stopCamera();
         cameraSection.classList.remove("active");
 
         speak("Prescription image captured.", true, () => {
           setTimeout(() => {
             if (!isFullyStopped) askSecondCamera();
-          }, 1200);
+          }, 1000);
         });
 
       } else if (currentTarget === "medicine") {
@@ -905,13 +839,15 @@
         previewImage(medicinePreview, dataUrl, true);
 
         updateStatus("Medicine captured successfully.");
+        updateVoicePrompt("Medicine captured successfully.");
+
         stopCamera();
         cameraSection.classList.remove("active");
 
         speak("Medicine image captured.", true, () => {
           setTimeout(() => {
             if (!isFullyStopped) safeAutoSubmitAnalyze();
-          }, 1200);
+          }, 1000);
         });
       }
 
@@ -945,30 +881,14 @@
             if (!isFullyStopped) {
               const ok = captureCurrentFrame();
               if (!ok) {
-                updateStatus("Capture failed. Please try manual capture.");
-                speak("Capture failed. Please try manual capture.", true);
+                updateStatus("Capture failed. Please click Capture Now.");
+                updateVoicePrompt("Capture failed. Please click Capture Now.");
+                speak("Capture failed. Please click Capture Now.", true);
               }
             }
           }, 500);
         }
       }, 1000);
-    }
-
-    function askSecondCamera() {
-      if (isFullyStopped) return;
-
-      currentStep = "wait_second_confirm";
-      updateStatus("Do you want to open second camera for Medicine image, say yes or no?");
-      updateVoicePrompt("Do you want to open second camera for Medicine image, say yes or no?");
-
-      speak("Do you want to open second camera for Medicine image, say yes or no?", true, () => {
-        setTimeout(() => {
-          if (isFullyStopped) return;
-          try {
-            if (!isListening) recognition.start();
-          } catch (e) {}
-        }, 1000);
-      });
     }
 
     function handleYes() {
@@ -977,24 +897,25 @@
       stopRecognition();
       stopSpeaking();
 
-      if (currentStep === "start") {
-        currentStep = "opening_first";
+      if (flowStep === "start_prompt") {
+        flowStep = "waiting_first";
         updateStatus("Yes received. Opening first camera.");
         updateVoicePrompt("Yes received. Opening first camera.");
 
         setTimeout(() => {
           if (!isFullyStopped) openCamera("prescription");
         }, 900);
+        return;
+      }
 
-      } else if (currentStep === "wait_second_confirm") {
-        currentStep = "opening_second";
+      if (flowStep === "waiting_second") {
         updateStatus("Yes received. Opening second camera.");
         updateVoicePrompt("Yes received. Opening second camera.");
 
-        // IMPORTANT EXTRA DELAY BEFORE 2ND CAMERA
         setTimeout(() => {
           if (!isFullyStopped) openCamera("medicine");
         }, 1500);
+        return;
       }
     }
 
@@ -1004,9 +925,19 @@
       stopRecognition();
       stopSpeaking();
 
-      updateStatus("Process cancelled.");
-      updateVoicePrompt("Process cancelled.");
-      speak("Okay. Process cancelled.", true);
+      if (flowStep === "start_prompt") {
+        updateStatus("Voice guide skipped. You can use manual upload or open camera buttons.");
+        updateVoicePrompt("Voice guide skipped. Use manual upload or open camera buttons.");
+        speak("Voice guide skipped. You can use manual upload or open camera buttons.", true);
+        return;
+      }
+
+      if (flowStep === "waiting_second") {
+        updateStatus("Second camera skipped. You can upload medicine image manually.");
+        updateVoicePrompt("Second camera skipped. You can upload medicine image manually.");
+        speak("Second camera skipped. Please upload medicine image manually.", true);
+        return;
+      }
     }
 
     function hasPrescription() {
@@ -1021,12 +952,14 @@
       if (isFullyStopped) return;
 
       if (!hasPrescription() || !hasMedicine()) {
-        updateStatus("Both images are required before analysis.");
-        speak("Both images are required before analysis.", true);
+        updateStatus("Please provide both prescription and medicine images.");
+        updateVoicePrompt("Please provide both prescription and medicine images.");
+        speak("Please provide both prescription and medicine images.", true);
         return;
       }
 
-      currentStep = "done";
+      flowStep = "done";
+
       updateStatus("Now analysis going on.");
       updateVoicePrompt("Now analysis going on.");
 
@@ -1057,8 +990,9 @@
         if (hasPrescription() && hasMedicine()) {
           autoSubmitAnalyze();
         } else {
-          updateStatus("Capture incomplete. Please retake images.");
-          speak("Capture incomplete. Please retake both images.", true);
+          updateStatus("Capture incomplete. Please provide both images.");
+          updateVoicePrompt("Capture incomplete. Please provide both images.");
+          speak("Capture incomplete. Please provide both images.", true);
         }
       }, 1000);
     }
@@ -1071,9 +1005,8 @@
       isFullyStopped = false;
       isOpeningCamera = false;
       currentTarget = null;
-      currentStep = "mode_select";
       awaitingClearAllCommand = false;
-      awaitingModeSelection = false;
+      flowStep = "start_prompt";
 
       prescriptionInput.value = "";
       medicineInput.value = "";
@@ -1098,9 +1031,22 @@
 
       speak("All details cleared. Ready for new scan.", true, () => {
         setTimeout(() => {
-          if (!isFullyStopped) askModeSelection();
+          if (!isFullyStopped) askStartPrompt();
         }, 900);
       });
+    }
+
+    function startClearAllListening() {
+      if (isFullyStopped) return;
+
+      awaitingClearAllCommand = true;
+
+      updateStatus("Say Clear all or Stop.");
+      updateVoicePrompt("Say Clear all or Stop.");
+
+      setTimeout(() => {
+        if (!isFullyStopped) startVoiceListeningOnly();
+      }, 500);
     }
 
     // Buttons
@@ -1114,7 +1060,10 @@
       handleNo();
     });
 
-    listenBtn.addEventListener("click", startListening);
+    listenBtn.addEventListener("click", () => {
+      isFullyStopped = false;
+      askStartPrompt();
+    });
 
     stopAllBtn.addEventListener("click", () => {
       stopEverything(true);
@@ -1122,17 +1071,15 @@
 
     openPrescriptionCameraBtn.addEventListener("click", () => {
       isFullyStopped = false;
-      currentStep = "opening_first";
+      flowStep = "waiting_first";
       awaitingClearAllCommand = false;
-      awaitingModeSelection = false;
       openCamera("prescription");
     });
 
     openMedicineCameraBtn.addEventListener("click", () => {
       isFullyStopped = false;
-      currentStep = "opening_second";
+      flowStep = "waiting_second";
       awaitingClearAllCommand = false;
-      awaitingModeSelection = false;
       openCamera("medicine");
     });
 
@@ -1144,6 +1091,7 @@
       stopCamera();
       cameraSection.classList.remove("active");
       updateStatus("Camera stopped.");
+      updateVoicePrompt("Camera stopped.");
     });
 
     clearAllBtn.addEventListener("click", clearAllData);
@@ -1173,6 +1121,7 @@
       if (!hasPrescription() || !hasMedicine()) {
         e.preventDefault();
         updateStatus("Please provide both prescription and medicine images.");
+        updateVoicePrompt("Please provide both prescription and medicine images.");
         speak("Please provide both prescription and medicine images.", true);
         return;
       }
@@ -1181,6 +1130,7 @@
       analyzeBtn.disabled = true;
       analyzeBtn.innerText = "Analyzing...";
       updateStatus("Analyzing images...");
+      updateVoicePrompt("Analyzing images...");
     });
 
     window.addEventListener("load", () => {
@@ -1212,7 +1162,7 @@
         }, 1500);
       } else {
         setTimeout(() => {
-          if (!isFullyStopped) askModeSelection();
+          if (!isFullyStopped) askStartPrompt();
         }, 1000);
       }
     });
