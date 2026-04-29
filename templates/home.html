@@ -60,36 +60,12 @@
       margin-top: 10px;
     }
 
-    .yes-btn {
-      background: #16a34a;
-      color: white;
-      font-size: 18px;
-      padding: 14px 22px;
-      min-width: 140px;
-      border: none;
-      border-radius: 12px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-
-    .no-btn {
-      background: #dc2626;
-      color: white;
-      font-size: 18px;
-      padding: 14px 22px;
-      min-width: 140px;
-      border: none;
-      border-radius: 12px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-
     .listen-btn {
       background: #7c3aed;
       color: white;
       font-size: 16px;
       padding: 14px 22px;
-      min-width: 180px;
+      min-width: 200px;
       border: none;
       border-radius: 12px;
       font-weight: bold;
@@ -313,7 +289,7 @@
         font-size: 22px;
       }
 
-      .green-btn, .red-btn, .yes-btn, .no-btn, .listen-btn, .stop-btn {
+      .green-btn, .red-btn, .listen-btn, .stop-btn {
         width: 100%;
       }
     }
@@ -330,10 +306,8 @@
 
     <div class="voice-panel">
       <h3>Voice Guided Start</h3>
-      <div id="voicePromptText">Do you want to start voice guide? Say Yes or No.</div>
+      <div id="voicePromptText">Say start to begin voice guide.</div>
       <div class="voice-buttons">
-        <button type="button" class="yes-btn" id="yesBtn">Yes</button>
-        <button type="button" class="no-btn" id="noBtn">No</button>
         <button type="button" class="listen-btn" id="listenBtn">Start Voice Listening</button>
         <button type="button" class="stop-btn" id="stopAllBtn">Stop</button>
       </div>
@@ -457,8 +431,6 @@
     const statusBox = document.getElementById("statusBox");
     const resultBox = document.getElementById("resultBox");
 
-    const yesBtn = document.getElementById("yesBtn");
-    const noBtn = document.getElementById("noBtn");
     const listenBtn = document.getElementById("listenBtn");
     const voicePromptText = document.getElementById("voicePromptText");
 
@@ -470,8 +442,8 @@
     let isFullyStopped = false;
     let isOpeningCamera = false;
     let isSpeaking = false;
-    let pendingNextAction = null;
 
+    // flow states:
     // start_prompt -> first_opening -> waiting_second -> second_opening -> done
     let flowStep = "start_prompt";
     let awaitingClearAllCommand = false;
@@ -547,7 +519,6 @@
     function stopEverything(showMessage = true) {
       isFullyStopped = true;
       isOpeningCamera = false;
-      pendingNextAction = null;
 
       stopSpeaking();
       stopRecognition();
@@ -579,8 +550,8 @@
     function setupSpeechRecognition() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
-        updateStatus("Voice recognition not supported. Use buttons or manual upload.");
-        updateVoicePrompt("Voice recognition not supported. Use buttons or manual upload.");
+        updateStatus("Voice recognition not supported. Use manual upload or camera buttons.");
+        updateVoicePrompt("Voice recognition not supported. Use manual upload or camera buttons.");
         return false;
       }
 
@@ -599,17 +570,25 @@
         isListening = true;
 
         if (awaitingClearAllCommand) {
-          updateStatus("Listening... Say Clear all or Stop.");
-          updateVoicePrompt("Listening... Say Clear all or Stop.");
+          updateStatus("Listening... Say clear all or stop.");
+          updateVoicePrompt("Listening... Say clear all or stop.");
+        } else if (flowStep === "start_prompt") {
+          updateStatus("Listening... Say start.");
+          updateVoicePrompt("Listening... Say start.");
+        } else if (flowStep === "waiting_second") {
+          updateStatus("Listening... Say start or skip.");
+          updateVoicePrompt("Listening... Say start or skip.");
         } else {
-          updateStatus("Listening... Say Yes or No.");
-          updateVoicePrompt("Listening... Say Yes or No.");
+          updateStatus("Listening...");
+          updateVoicePrompt("Listening...");
         }
       };
 
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript.toLowerCase().trim();
         isListening = false;
+
+        console.log("Voice heard:", transcript);
 
         if (transcript.includes("stop")) {
           stopEverything(true);
@@ -624,7 +603,7 @@
             });
             return;
           } else {
-            speak("Please say Clear all or Stop.", true, () => {
+            speak("Please say clear all or stop.", true, () => {
               setTimeout(() => {
                 if (!isFullyStopped) startClearAllListening();
               }, 700);
@@ -633,23 +612,54 @@
           }
         }
 
-        if (transcript.includes("yes")) {
-          handleYes();
-        } else if (transcript.includes("no")) {
-          handleNo();
-        } else {
-          speak("I did not understand. Please say Yes or No.", true, () => {
+        if (flowStep === "start_prompt") {
+          if (transcript.includes("start")) {
+            openFirstCameraNow();
+            return;
+          }
+
+          if (transcript.includes("skip") || transcript.includes("no")) {
+            updateStatus("Voice guide skipped. Use manual upload or open camera buttons.");
+            updateVoicePrompt("Voice guide skipped. Use manual upload or open camera buttons.");
+            speak("Voice guide skipped. You can use manual upload or open camera buttons.", true);
+            return;
+          }
+
+          speak("Please say start to begin voice guide.", true, () => {
             setTimeout(() => {
               if (!isFullyStopped) startVoiceListeningOnly();
             }, 700);
           });
+          return;
+        }
+
+        if (flowStep === "waiting_second") {
+          if (transcript.includes("start")) {
+            openSecondCameraNow();
+            return;
+          }
+
+          if (transcript.includes("skip") || transcript.includes("no")) {
+            updateStatus("Second camera skipped. Please upload medicine image manually.");
+            updateVoicePrompt("Second camera skipped. Please upload medicine image manually.");
+            speak("Second camera skipped. Please upload medicine image manually.", true);
+            return;
+          }
+
+          speak("Please say start or skip.", true, () => {
+            setTimeout(() => {
+              if (!isFullyStopped) startVoiceListeningOnly();
+            }, 700);
+          });
+          return;
         }
       };
 
       recognition.onerror = () => {
         isListening = false;
         if (isFullyStopped) return;
-        updateStatus("Voice recognition failed. Use Yes / No buttons.");
+        updateStatus("Voice recognition failed. Use Start Voice Listening again.");
+        updateVoicePrompt("Voice recognition failed. Use Start Voice Listening again.");
       };
 
       recognition.onend = () => {
@@ -683,10 +693,10 @@
       flowStep = "start_prompt";
       awaitingClearAllCommand = false;
 
-      updateStatus("Do you want to start voice guide? Say yes or no.");
-      updateVoicePrompt("Do you want to start voice guide? Say yes or no.");
+      updateStatus("Say start to begin voice guide.");
+      updateVoicePrompt("Say start to begin voice guide.");
 
-      speak("Do you want to start voice guide? Say yes or no.", true, () => {
+      speak("Say start to begin voice guide.", true, () => {
         setTimeout(() => {
           if (!isFullyStopped) startVoiceListeningOnly();
         }, 900);
@@ -698,10 +708,10 @@
 
       flowStep = "waiting_second";
 
-      updateStatus("Do you want to open second camera for medicine image? Say yes or no.");
-      updateVoicePrompt("Do you want to open second camera for medicine image? Say yes or no.");
+      updateStatus("Say start to open second camera, or skip to skip.");
+      updateVoicePrompt("Say start to open second camera, or skip to skip.");
 
-      speak("Do you want to open second camera for medicine image? Say yes or no.", true, () => {
+      speak("Say start to open second camera, or skip to skip.", true, () => {
         setTimeout(() => {
           if (!isFullyStopped) startVoiceListeningOnly();
         }, 900);
@@ -728,6 +738,7 @@
 
       try { video.srcObject = null; } catch (e) {}
 
+      // Chromebook / Chrome safe delay
       await sleep(1400);
     }
 
@@ -911,11 +922,10 @@
     function openFirstCameraNow() {
       if (isFullyStopped) return;
 
-      pendingNextAction = null;
       flowStep = "first_opening";
 
-      updateStatus("Yes received. Opening first camera.");
-      updateVoicePrompt("Yes received. Opening first camera.");
+      updateStatus("Opening first camera.");
+      updateVoicePrompt("Opening first camera.");
 
       setTimeout(() => {
         if (!isFullyStopped) openCamera("prescription");
@@ -925,57 +935,14 @@
     function openSecondCameraNow() {
       if (isFullyStopped) return;
 
-      pendingNextAction = null;
       flowStep = "second_opening";
 
-      updateStatus("Yes received. Opening second camera.");
-      updateVoicePrompt("Yes received. Opening second camera.");
+      updateStatus("Opening second camera.");
+      updateVoicePrompt("Opening second camera.");
 
       setTimeout(() => {
         if (!isFullyStopped) openCamera("medicine");
       }, 900);
-    }
-
-    function handleYes() {
-      if (isFullyStopped) return;
-
-      stopRecognition();
-      stopSpeaking();
-
-      // YES button must always work instantly
-      if (flowStep === "start_prompt" || flowStep === "first_opening") {
-        openFirstCameraNow();
-        return;
-      }
-
-      if (flowStep === "waiting_second" || flowStep === "second_opening") {
-        openSecondCameraNow();
-        return;
-      }
-
-      // fallback
-      openFirstCameraNow();
-    }
-
-    function handleNo() {
-      if (isFullyStopped) return;
-
-      stopRecognition();
-      stopSpeaking();
-
-      if (flowStep === "start_prompt") {
-        updateStatus("Voice guide skipped. You can use manual upload or open camera buttons.");
-        updateVoicePrompt("Voice guide skipped. Use manual upload or open camera buttons.");
-        speak("Voice guide skipped. You can use manual upload or open camera buttons.", true);
-        return;
-      }
-
-      if (flowStep === "waiting_second") {
-        updateStatus("Second camera skipped. You can upload medicine image manually.");
-        updateVoicePrompt("Second camera skipped. You can upload medicine image manually.");
-        speak("Second camera skipped. Please upload medicine image manually.", true);
-        return;
-      }
     }
 
     function hasPrescription() {
@@ -1043,7 +1010,6 @@
       isFullyStopped = false;
       isOpeningCamera = false;
       isSpeaking = false;
-      pendingNextAction = null;
       currentTarget = null;
       awaitingClearAllCommand = false;
       flowStep = "start_prompt";
@@ -1081,8 +1047,8 @@
 
       awaitingClearAllCommand = true;
 
-      updateStatus("Say Clear all or Stop.");
-      updateVoicePrompt("Say Clear all or Stop.");
+      updateStatus("Say clear all or stop.");
+      updateVoicePrompt("Say clear all or stop.");
 
       setTimeout(() => {
         if (!isFullyStopped) startVoiceListeningOnly();
@@ -1090,16 +1056,6 @@
     }
 
     // Buttons
-    yesBtn.addEventListener("click", () => {
-      isFullyStopped = false;
-      handleYes();
-    });
-
-    noBtn.addEventListener("click", () => {
-      isFullyStopped = false;
-      handleNo();
-    });
-
     listenBtn.addEventListener("click", () => {
       isFullyStopped = false;
       stopSpeaking();
@@ -1194,7 +1150,7 @@
                 setTimeout(() => {
                   if (isFullyStopped) return;
 
-                  speak("Say Clear all to clear all data and start new scan.", true, () => {
+                  speak("Say clear all to clear all data and start new scan.", true, () => {
                     setTimeout(() => {
                       if (!isFullyStopped) startClearAllListening();
                     }, 700);
