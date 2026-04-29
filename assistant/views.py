@@ -1,24 +1,40 @@
 import os
 import re
+import cv2
+import uuid
 import base64
 import requests
-from io import BytesIO
-from datetime import datetime
+import numpy as np
 
-from PIL import Image
+from io import BytesIO
+from PIL import Image, ImageEnhance, ImageFilter
 from django.conf import settings
 from django.shortcuts import render
 from django.core.files.storage import default_storage
+
+from paddleocr import PaddleOCR
+
+
+# ==========================================
+# PADDLE OCR INIT (load once)
+# ==========================================
+ocr = PaddleOCR(
+    use_angle_cls=True,
+    lang='en',
+    show_log=False
+)
 
 
 # ==========================================
 # FILE SAVE HELPERS
 # ==========================================
-
 def save_uploaded_file(file_obj, folder="uploads"):
     try:
-        file_name = default_storage.save(f"{folder}/{file_obj.name}", file_obj)
-        return os.path.join(settings.MEDIA_ROOT, file_name)
+        ext = os.path.splitext(file_obj.name)[1].lower() or ".jpg"
+        unique_name = f"{uuid.uuid4().hex}{ext}"
+        relative_path = f"{folder}/{unique_name}"
+        saved_path = default_storage.save(relative_path, file_obj)
+        return os.path.join(settings.MEDIA_ROOT, saved_path)
     except Exception as e:
         print("File save error:", e)
         return None
@@ -36,8 +52,10 @@ def save_base64_image(data_url, file_name="camera_capture.jpg", folder="uploads"
             ext = "png"
         elif "image/webp" in header:
             ext = "webp"
+        elif "image/jpeg" in header or "image/jpg" in header:
+            ext = "jpg"
 
-        final_name = f"{os.path.splitext(file_name)[0]}.{ext}"
+        final_name = f"{uuid.uuid4().hex}.{ext}"
         binary_data = base64.b64decode(imgstr)
 
         relative_path = f"{folder}/{final_name}"
@@ -50,62 +68,114 @@ def save_base64_image(data_url, file_name="camera_capture.jpg", folder="uploads"
 
 
 # ==========================================
-# IMAGE COMPRESSION FOR OCR SPACE FREE PLAN
+# IMAGE PREPROCESSING
 # ==========================================
-
-def prepare_image_for_ocr(image_path, max_size_bytes=1400000):
+def enhance_image_for_ocr(image_path):
+    """
+    Create multiple enhanced versions for better OCR accuracy
+    """
     try:
         if not image_path or not os.path.exists(image_path):
-            return image_path, "Image file not found"
+            return []
 
-        original_size = os.path.getsize(image_path)
+        img = Image.open(image_path).convert("RGB")
 
-        if original_size <= max_size_bytes:
-            return image_path, f"Original size OK ({original_size} bytes)"
+        variants = []
 
-        img = Image.open(image_path)
+        # Original
+        variants.append(("original", img.copy()))
 
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-        elif img.mode != "RGB":
-            img = img.convert("RGB")
+        # Grayscale + contrast
+        gray = img.convert("L")
+        gray = ImageEnhance.Contrast(gray).enhance(2.2)
+        variants.append(("gray_contrast", gray.convert("RGB")))
 
-        width, height = img.size
-        compressed_path = os.path.splitext(image_path)[0] + "_ocr.jpg"
+        # Sharpen
+        sharp = gray.filter(ImageFilter.SHARPEN)
+        variants.append(("sharp", sharp.convert("RGB")))
 
-        for scale in [1.0, 0.9, 0.8, 0.7, 0.6]:
-            new_w = max(800, int(width * scale))
-            new_h = max(800, int(height * scale))
+        # Bigger image
+        w, h = img.size
+        upscale = img.resize((int(w * 1.8), int(h * 1.8)), Image.LANCZOS)
+        upscale_gray = upscale.convert("L")
+        upscale_gray = ImageEnhance.Contrast(upscale_gray).enhance(2.5)
+        variants.append(("upscale", upscale_gray.convert("RGB")))
 
-            resized = img.resize((new_w, new_h), Image.LANCZOS)
+        # Threshold (good for printed strip text)
+        arr = np.array(upscale_gray)
+        _, thresh = cv2.threshold(arr, 160, 255, cv2.THRESH_BINARY)
+        thresh_img = Image.fromarray(thresh).convert("RGB")
+        variants.append(("threshold", thresh_img))
 
-            for quality in [85, 75, 65, 55, 45, 35]:
-                resized.save(
-                    compressed_path,
-                    format="JPEG",
-                    quality=quality,
-                    optimize=True
-                )
-
-                if os.path.exists(compressed_path):
-                    new_size = os.path.getsize(compressed_path)
-                    if new_size <= max_size_bytes:
-                        return compressed_path, f"Compressed from {original_size} to {new_size} bytes"
-
-        if os.path.exists(compressed_path):
-            new_size = os.path.getsize(compressed_path)
-            return compressed_path, f"Compressed best effort: {original_size} -> {new_size} bytes"
-
-        return image_path, f"Compression failed, original size {original_size} bytes"
+        return variants
 
     except Exception as e:
-        return image_path, f"Compression error: {str(e)}"
+        print("Enhance image error:", e)
+        return []
+
+
+# ==========================================
+# PADDLE OCR EXTRACT
+# ==========================================
+def extract_text_with_paddleocr(image_path):
+    """
+    Run OCR on multiple enhanced variants and return best text
+    """
+    try:
+        variants = enhance_image_for_ocr(image_path)
+        if not variants:
+            return "", []
+
+        best_text = ""
+        best_lines = []
+        best_score = -1
+
+        for variant_name, pil_img in variants:
+            try:
+                img_np = np.array(pil_img)
+                result = ocr.ocr(img_np, cls=True)
+
+                lines = []
+                total_score = 0.0
+
+                if result and result[0]:
+                    for item in result[0]:
+                        try:
+                            text = item[1][0].strip()
+                            conf = float(item[1][1])
+
+                            if text:
+                                lines.append(text)
+                                total_score += conf
+                        except Exception:
+                            continue
+
+                joined_text = "\n".join(lines).strip()
+
+                # choose best result by confidence + text richness
+                score = total_score + (len(joined_text) * 0.01)
+
+                if score > best_score and joined_text:
+                    best_score = score
+                    best_text = joined_text
+                    best_lines = lines
+
+                print(f"OCR variant [{variant_name}] => {joined_text}")
+
+            except Exception as inner_e:
+                print(f"OCR variant error [{variant_name}]:", inner_e)
+                continue
+
+        return clean_text(best_text), best_lines
+
+    except Exception as e:
+        print("PaddleOCR extraction error:", e)
+        return "", []
 
 
 # ==========================================
 # TEXT HELPERS
 # ==========================================
-
 def clean_text(text):
     if not text:
         return ""
@@ -119,194 +189,225 @@ def normalize_word(word):
     return re.sub(r"[^a-z0-9]", "", word.lower()) if word else ""
 
 
-# ==========================================
-# OCR
-# ==========================================
-
-def extract_text_from_image(image_path):
-    try:
-        api_key = os.getenv("OCR_SPACE_API_KEY", "").strip()
-
-        if not api_key:
-            return "", "OCR_SPACE_API_KEY missing"
-
-        if not image_path or not os.path.exists(image_path):
-            return "", "Image file not found"
-
-        prepared_path, prep_debug = prepare_image_for_ocr(image_path)
-
-        with open(prepared_path, "rb") as f:
-            response = requests.post(
-                "https://api.ocr.space/parse/image",
-                files={"file": f},
-                data={
-                    "apikey": api_key,
-                    "language": "eng",
-                    "isOverlayRequired": False,
-                    "OCREngine": 2,
-                    "scale": True,
-                    "detectOrientation": True,
-                },
-                timeout=60
-            )
-
-        if response.status_code != 200:
-            return "", f"{prep_debug} | OCR HTTP error: {response.status_code}"
-
-        try:
-            data = response.json()
-        except Exception:
-            return "", f"{prep_debug} | OCR invalid JSON"
-
-        if data.get("IsErroredOnProcessing"):
-            return "", f"{prep_debug} | OCR processing error"
-
-        parsed_results = data.get("ParsedResults", [])
-        if not parsed_results:
-            return "", f"{prep_debug} | No ParsedResults"
-
-        text = "\n".join(
-            item.get("ParsedText", "")
-            for item in parsed_results
-            if isinstance(item, dict)
-        ).strip()
-
-        if not text:
-            return "", f"{prep_debug} | OCR returned empty text"
-
-        return clean_text(text), f"{prep_debug} | OCR success"
-
-    except Exception as e:
-        return "", f"OCR exception: {str(e)}"
+def normalize_text_for_match(text):
+    return re.sub(r"[^a-z0-9]", "", text.lower()) if text else ""
 
 
 # ==========================================
 # MEDICINE NAME EXTRACTION
 # ==========================================
+BAD_MED_WORDS = {
+    "tablet", "tablets", "capsule", "capsules", "ip", "rx", "batch", "mfg",
+    "exp", "expiry", "alkem", "composition", "contains", "each", "film",
+    "coated", "cefpodoxime", "proxetil", "mg", "ml", "tab", "cap", "syr",
+    "syrup", "dr", "clinic", "hospital"
+}
 
-def extract_prescription_medicine_name(text):
+
+def extract_medicine_name_from_prescription(text):
+    """
+    Extract medicine from prescription lines like:
+    Tab Gudcef 200 - 1-0-1 x 5 days
+    """
     if not text:
         return "Not found"
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
+    patterns = [
+        r'(?:tab|tablet|cap|capsule|syr|syrup)\s+([A-Za-z]{3,20}(?:\s+\d{1,4})?)',
+        r'([A-Za-z]{3,20}(?:\s+\d{1,4})?)\s*[-:]?\s*[01]\s*-\s*[01]\s*-\s*[01]',
+    ]
+
     for line in lines:
-        # Example: Tab Gudcef 200mg 1-0-1
-        if re.search(r'\b(tab|tablet|cap|capsule|syr|syrup)\b', line, re.I):
-            line_clean = re.sub(r'^\s*(tab|tablet|cap|capsule|syr|syrup)\s+', '', line, flags=re.I)
+        for pattern in patterns:
+            match = re.search(pattern, line, re.IGNORECASE)
+            if match:
+                candidate = match.group(1).strip()
+                if candidate and normalize_word(candidate) not in {"tab", "tablet", "cap"}:
+                    return candidate
 
-            # remove dosage pattern and days
-            line_clean = re.sub(r'\b\d+\s*-\s*\d+\s*-\s*\d+\b', '', line_clean, flags=re.I)
-            line_clean = re.sub(r'\bx\s*\d+\s*days?\b', '', line_clean, flags=re.I)
-            line_clean = re.sub(r'\b\d+\s*ml\s*-\s*\d+\s*-\s*\d+\s*ml\b', '', line_clean, flags=re.I)
-
-            # take first medicine-like words
-            words = re.findall(r'[A-Za-z0-9]+', line_clean)
-            if words:
-                medicine_words = []
-                for w in words:
-                    nw = normalize_word(w)
-                    if nw in ['mg', 'ml', 'days', 'day']:
-                        continue
-                    medicine_words.append(w)
-                    # Usually medicine name + strength
-                    if len(medicine_words) >= 2:
+    # fallback: first line with dosage pattern
+    for line in lines:
+        if re.search(r'\b[01]\s*-\s*[01]\s*-\s*[01]\b', line):
+            words = re.findall(r'[A-Za-z0-9]+', line)
+            filtered = []
+            for w in words:
+                nw = normalize_word(w)
+                if nw in BAD_MED_WORDS:
+                    continue
+                if re.fullmatch(r'\d+', w):
+                    filtered.append(w)
+                    if len(filtered) >= 2:
                         break
+                    continue
+                if len(w) >= 3:
+                    filtered.append(w)
+                if len(filtered) >= 2:
+                    break
 
-                if medicine_words:
-                    return " ".join(medicine_words)
+            if filtered:
+                return " ".join(filtered)
 
     return "Not found"
 
 
-# ==========================================
-# EXPIRY DATE
-# ==========================================
-
-def extract_expiry_date(text):
+def extract_medicine_name_from_strip(text):
+    """
+    Extract medicine name from medicine strip image.
+    Example:
+    Gudcef 200
+    """
     if not text:
         return "Not found"
 
-    patterns = [
-        r"EXP[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})",
-        r"EXPIRY[:\s\-]*([0-1]?\d[/\-][0-9]{2,4})",
-        r"\b([0-1]?\d[/\-][0-9]{4})\b",
-    ]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    full_text = " ".join(lines)
 
-    for pattern in patterns:
-        match = re.search(pattern, text, re.I)
-        if match:
-            return match.group(1).replace("-", "/")
+    # Strong pattern: Brand + strength
+    strong_matches = re.findall(r'\b([A-Z][A-Za-z]{2,20}\s?\d{1,4})\b', full_text)
+    for match in strong_matches:
+        candidate = match.strip()
+        nw = normalize_word(candidate)
+
+        if any(bad in nw for bad in ["tablet", "tablets", "capsule", "capsules", "alkem", "exp", "mfg"]):
+            continue
+        if len(candidate) >= 4:
+            return candidate
+
+    # Fallback: best first line
+    for line in lines[:4]:
+        words = re.findall(r'[A-Za-z0-9]+', line)
+        filtered = []
+
+        for w in words:
+            nw = normalize_word(w)
+            if nw in BAD_MED_WORDS:
+                continue
+            if len(w) >= 3 or re.fullmatch(r'\d+', w):
+                filtered.append(w)
+            if len(filtered) >= 2:
+                break
+
+        if filtered:
+            return " ".join(filtered)
 
     return "Not found"
 
 
 # ==========================================
-# DOSAGE EXTRACTION (ONLY SIMPLE OUTPUT)
+# EXPIRY DATE EXTRACTION
 # ==========================================
+def extract_expiry_date(text):
+    """
+    Handles:
+    EXP-06/2029
+    EXP 06/2029
+    EXPIRY 06-2029
+    06/2029
+    """
+    if not text:
+        return "Not found"
 
-def convert_dosage_to_text(code, days=None):
-    code = code.replace(" ", "")
+    merged = text.replace("\n", " ")
 
-    dosage_map = {
-        "1-0-1": "Morning and Evening 1 tablet",
-        "1-0-0": "Morning 1 tablet",
-        "0-1-0": "Afternoon 1 tablet",
-        "0-0-1": "Evening 1 tablet",
-        "1-1-0": "Morning and Afternoon 1 tablet",
-        "1-1-1": "Morning, Afternoon and Evening 1 tablet",
-        "0-1-1": "Afternoon and Evening 1 tablet",
-    }
+    patterns = [
+        r'EXP(?:IRY)?[:\s\-]*([0-1]?\d[\/\-]\d{4})',
+        r'EXP(?:IRY)?[:\s\-]*([0-1]?\d[\/\-]\d{2})',
+        r'\b([0-1]?\d[\/\-]\d{4})\b',
+        r'\b([0-1]?\d[\/\-]\d{2})\b',
+    ]
 
-    text = dosage_map.get(code, code)
+    for pattern in patterns:
+        match = re.search(pattern, merged, re.IGNORECASE)
+        if match:
+            return match.group(1).replace("-", "/").strip()
 
-    if days:
-        text += f" for {days} days"
-
-    return text
+    return "Not found"
 
 
+# ==========================================
+# DOSAGE EXTRACTION
+# ==========================================
 def extract_days(text):
     if not text:
         return None
 
-    match = re.search(r'x\s*(\d+)\s*days?', text, re.I)
-    if match:
-        return match.group(1)
+    patterns = [
+        r'x\s*(\d+)\s*days?',
+        r'for\s*(\d+)\s*days?',
+        r'(\d+)\s*days?'
+    ]
 
-    match = re.search(r'(\d+)\s*days?', text, re.I)
-    if match:
-        return match.group(1)
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1)
 
-    return None
+    return "5"  # default fallback
 
 
-def extract_dosage_text(text, medicine_name):
-    if not text:
+def convert_dosage_to_text(code, days=None):
+    code = code.replace(" ", "")
+    days = days or "5"
+
+    dosage_map = {
+        "1-0-1": f"Morning and Night for {days} days",
+        "1-1-0": f"Morning and Afternoon for {days} days",
+        "0-0-1": f"Night for {days} days",
+        "0-1-0": f"Afternoon for {days} days",
+        "1-0-0": f"Morning for {days} days",
+        "0-1-1": f"Afternoon and Night for {days} days",
+        "1-1-1": f"Morning, Afternoon and Night for {days} days",
+    }
+
+    return dosage_map.get(code, f"Dosage code {code} for {days} days")
+
+
+def extract_dosage_text(prescription_text, medicine_name):
+    """
+    Get dosage only for the matched medicine line if possible.
+    """
+    if not prescription_text:
         return "Not found"
 
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    days = extract_days(text)
+    lines = [line.strip() for line in prescription_text.splitlines() if line.strip()]
+    days = extract_days(prescription_text)
+    med_key = normalize_text_for_match(medicine_name.split()[0]) if medicine_name and medicine_name != "Not found" else ""
 
-    for line in lines:
-        if medicine_name.lower().split()[0] in line.lower():
-            dose_match = re.search(r'\b(\d+\s*-\s*\d+\s*-\s*\d+)\b', line)
-            if dose_match:
-                return convert_dosage_to_text(dose_match.group(1), days)
+    # first try matched medicine line
+    if med_key:
+        for line in lines:
+            if med_key in normalize_text_for_match(line):
+                dose_match = re.search(r'\b([01]\s*-\s*[01]\s*-\s*[01])\b', line)
+                if dose_match:
+                    code = dose_match.group(1).replace(" ", "")
+                    return convert_dosage_to_text(code, days)
 
-    # fallback: first dosage pattern anywhere
+    # fallback: any dosage pattern
     for line in lines:
-        dose_match = re.search(r'\b(\d+\s*-\s*\d+\s*-\s*\d+)\b', line)
+        dose_match = re.search(r'\b([01]\s*-\s*[01]\s*-\s*[01])\b', line)
         if dose_match:
-            return convert_dosage_to_text(dose_match.group(1), days)
+            code = dose_match.group(1).replace(" ", "")
+            return convert_dosage_to_text(code, days)
 
     return "Not found"
 
 
 # ==========================================
-# SIMPLE VOICE MESSAGE (ONLY 3 DETAILS)
+# FINAL CHOOSE BEST MEDICINE NAME
 # ==========================================
+def choose_best_medicine_name(prescription_name, strip_name):
+    if strip_name != "Not found":
+        return strip_name
+    if prescription_name != "Not found":
+        return prescription_name
+    return "Not found"
 
+
+# ==========================================
+# SIMPLE VOICE MESSAGE
+# ==========================================
 def build_voice_message(result):
     if result.get("error"):
         return "Please provide both prescription and medicine images."
@@ -323,9 +424,8 @@ def build_voice_message(result):
 
 
 # ==========================================
-# OPTIONAL SERVAM TTS
+# OPTIONAL SARVAM TTS
 # ==========================================
-
 def generate_servam_tts(text):
     try:
         api_key = getattr(settings, "SERVAM_API_KEY", "")
@@ -348,19 +448,20 @@ def generate_servam_tts(text):
         response = requests.post(api_url, json=payload, headers=headers, timeout=30)
 
         if response.status_code != 200:
+            print("Sarvam TTS error:", response.status_code, response.text)
             return None
 
         data = response.json()
         return data.get("audio_url") or data.get("url")
 
-    except Exception:
+    except Exception as e:
+        print("Sarvam TTS exception:", e)
         return None
 
 
 # ==========================================
-# MAIN VIEW (ONLY 3 DETAILS IN RESULT)
+# MAIN VIEW
 # ==========================================
-
 def home(request):
     result = None
 
@@ -369,6 +470,7 @@ def home(request):
             prescription_path = None
             medicine_path = None
 
+            # Uploaded files
             prescription_file = request.FILES.get("prescription_image")
             medicine_file = request.FILES.get("medicine_image")
 
@@ -378,6 +480,7 @@ def home(request):
             if medicine_file:
                 medicine_path = save_uploaded_file(medicine_file, folder="medicines")
 
+            # Camera base64 images
             prescription_camera = request.POST.get("prescription_camera_data")
             medicine_camera = request.POST.get("medicine_camera_data")
 
@@ -401,26 +504,39 @@ def home(request):
                 }
                 return render(request, "home.html", {"result": result})
 
-            # OCR
-            prescription_text, _ = extract_text_from_image(prescription_path)
-            medicine_text, _ = extract_text_from_image(medicine_path)
+            # OCR both images with PaddleOCR
+            prescription_text, prescription_lines = extract_text_with_paddleocr(prescription_path)
+            medicine_text, medicine_lines = extract_text_with_paddleocr(medicine_path)
 
-            # Only required details
-            medicine_name = extract_prescription_medicine_name(prescription_text)
+            print("\n========== PRESCRIPTION OCR ==========")
+            print(prescription_text)
+            print("=====================================\n")
+
+            print("\n=========== MEDICINE OCR ============")
+            print(medicine_text)
+            print("=====================================\n")
+
+            # Extract details
+            prescription_name = extract_medicine_name_from_prescription(prescription_text)
+            strip_name = extract_medicine_name_from_strip(medicine_text)
+            medicine_name = choose_best_medicine_name(prescription_name, strip_name)
+
             expiry_date = extract_expiry_date(medicine_text)
             dosage_text = extract_dosage_text(prescription_text, medicine_name)
 
+            # Final result
             result = {
                 "error": None,
-                "medicine_name": medicine_name,
-                "expiry_date": expiry_date,
-                "dosage_text": dosage_text,
+                "medicine_name": medicine_name or "Not found",
+                "expiry_date": expiry_date or "Not found",
+                "dosage_text": dosage_text or "Not found",
             }
 
             result["voice_message"] = build_voice_message(result)
             result["servam_audio_url"] = generate_servam_tts(result["voice_message"])
 
         except Exception as e:
+            print("Main processing exception:", e)
             result = {
                 "error": f"An error occurred: {str(e)}",
                 "medicine_name": "Not found",
