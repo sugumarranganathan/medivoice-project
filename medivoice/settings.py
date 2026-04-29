@@ -1,9 +1,6 @@
 import os
 from pathlib import Path
 import dj_database_url
-from dotenv import load_dotenv
-
-load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -11,20 +8,11 @@ SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-temp-key")
 
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
-# Render-safe ALLOWED_HOSTS
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
     ".onrender.com",
 ]
-
-# Optional: allow custom hosts from env if added later
-extra_hosts = os.getenv("ALLOWED_HOSTS", "")
-if extra_hosts:
-    for host in extra_hosts.split(","):
-        host = host.strip()
-        if host and host not in ALLOWED_HOSTS:
-            ALLOWED_HOSTS.append(host)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -66,9 +54,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "medivoice.wsgi.application"
 
-# =========================
-# DATABASE
-# =========================
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
@@ -87,41 +72,23 @@ else:
         }
     }
 
-# =========================
-# AUTH
-# =========================
 AUTH_PASSWORD_VALIDATORS = []
 
-# =========================
-# INTERNATIONALIZATION
-# =========================
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Kolkata"
 USE_I18N = True
 USE_TZ = True
 
-# =========================
-# STATIC FILES
-# =========================
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = []
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-# =========================
-# MEDIA FILES
-# =========================
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-# =========================
-# DEFAULT PRIMARY KEY
-# =========================
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# =========================
-# RENDER / HTTPS SETTINGS
-# =========================
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 if not DEBUG:
@@ -133,15 +100,9 @@ else:
     CSRF_COOKIE_SECURE = False
     SECURE_SSL_REDIRECT = False
 
-# =========================
-# UPLOAD LIMITS
-# =========================
-DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 
-# =========================
-# API KEYS
-# =========================
 OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "")
 SERVAM_API_KEY = os.getenv("SERVAM_API_KEY", "")
 SERVAM_API_URL = os.getenv("SERVAM_API_URL", "")
