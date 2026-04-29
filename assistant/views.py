@@ -77,9 +77,6 @@ def normalize_text_for_match(text):
 # IMAGE PREP FOR OCR.SPACE
 # ==========================================
 def preprocess_for_ocr_space(image_path):
-    """
-    Create 1 best processed image for OCR.Space
-    """
     try:
         if not image_path or not os.path.exists(image_path):
             return image_path
@@ -91,20 +88,20 @@ def preprocess_for_ocr_space(image_path):
         elif img.mode != "RGB":
             img = img.convert("RGB")
 
-        # enlarge for better OCR
         w, h = img.size
-        scale = 1.8 if max(w, h) < 1800 else 1.3
+
+        # enlarge for OCR
+        scale = 2.0 if max(w, h) < 1800 else 1.4
         img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
 
-        # grayscale + stronger contrast + sharpen
         gray = img.convert("L")
-        gray = ImageEnhance.Contrast(gray).enhance(2.8)
+        gray = ImageEnhance.Contrast(gray).enhance(3.0)
         gray = gray.filter(ImageFilter.SHARPEN)
 
         processed = gray.convert("RGB")
 
         processed_path = os.path.splitext(image_path)[0] + "_processed.jpg"
-        processed.save(processed_path, format="JPEG", quality=88, optimize=True)
+        processed.save(processed_path, format="JPEG", quality=90, optimize=True)
 
         return processed_path
 
@@ -174,25 +171,29 @@ def extract_text_with_ocr_space(image_path):
 
 
 # ==========================================
-# OCR FIXES (HIGHLY TUNED)
+# OCR FIXES
 # ==========================================
 def fix_common_ocr_errors(text):
     if not text:
         return text
 
-    # zero / O confusion
+    # Common number/letter confusion
     text = re.sub(r'\b20O\b', '200', text)
     text = re.sub(r'\b2OO\b', '200', text)
-    text = re.sub(r'\b30O\b', '300', text)
-    text = re.sub(r'\b5OO\b', '500', text)
+    text = re.sub(r'\b2O0\b', '200', text)
 
-    # expiry common mistakes
+    # Gudcef variants
+    text = re.sub(r'\bGudcef\s*20O\b', 'Gudcef 200', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bGudcef20O\b', 'Gudcef 200', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bGudcef200\b', 'Gudcef 200', text, flags=re.IGNORECASE)
+
+    # Expiry variants
     text = re.sub(r'\bO6/2029\b', '06/2029', text)
     text = re.sub(r'\b0G/2029\b', '06/2029', text)
-    text = re.sub(r'\bEXP[\s\-]*O6/2029\b', 'EXP-06/2029', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bEXP[\s\-]*0G/2029\b', 'EXP-06/2029', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bEXP[\s:\-]*O6/2029\b', 'EXP:06/2029', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bEXP[\s:\-]*0G/2029\b', 'EXP:06/2029', text, flags=re.IGNORECASE)
 
-    # dosage common mistakes
+    # Dosage variants
     text = re.sub(r'\bI\s*-\s*0\s*-\s*I\b', '1-0-1', text, flags=re.IGNORECASE)
     text = re.sub(r'\bl\s*-\s*0\s*-\s*l\b', '1-0-1', text, flags=re.IGNORECASE)
     text = re.sub(r'\bI\s*-\s*1\s*-\s*0\b', '1-1-0', text, flags=re.IGNORECASE)
@@ -203,38 +204,34 @@ def fix_common_ocr_errors(text):
 
 
 # ==========================================
-# MEDICINE EXTRACTION WORD FILTERS
-# ==========================================
-BAD_MED_WORDS = {
-    "tablet", "tablets", "capsule", "capsules", "ip", "rx", "batch", "mfg",
-    "exp", "expiry", "alkem", "composition", "contains", "each", "film",
-    "coated", "cefpodoxime", "proxetil", "mg", "ml", "tab", "cap", "syr",
-    "syrup", "dr", "clinic", "hospital", "doctor", "consultant", "signature",
-    "chemist", "family", "practice", "room", "road", "days"
-}
-
-
-# ==========================================
-# MEDICINE NAME EXTRACTION (STRIP - HIGHLY TUNED)
+# KNOWN BRANDS
 # ==========================================
 KNOWN_BRANDS = [
-    "Gudcef", "Monocef", "Azee", "Taxim", "Augmentin", "Dolo", "Paracip",
-    "Azithral", "Cetzine", "Pantocid", "Pan", "Calpol"
+    "Gudcef", "Monticope", "Chericof",
+    "Monocef", "Azee", "Taxim", "Augmentin", "Dolo",
+    "Paracip", "Azithral", "Cetzine", "Pantocid", "Pan", "Calpol"
 ]
 
 
+# ==========================================
+# MEDICINE NAME FROM STRIP (EXACT TUNED)
+# ==========================================
 def extract_medicine_name_from_strip(text):
     if not text:
         return "Not found"
 
     text = fix_common_ocr_errors(text)
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    full_text = " ".join(lines)
+    merged = text.replace("\n", " ")
 
-    # 1) Known brand priority (Gudcef 200)
+    # 1) Exact Gudcef priority
+    match = re.search(r'\bGudcef\s*([0-9]{2,4})\b', merged, re.IGNORECASE)
+    if match:
+        return f"Gudcef {match.group(1)}"
+
+    # 2) Known brands with strength
     for brand in KNOWN_BRANDS:
         pattern = rf'\b({brand})\s*([0-9]{{2,4}})?\b'
-        match = re.search(pattern, full_text, re.IGNORECASE)
+        match = re.search(pattern, merged, re.IGNORECASE)
         if match:
             b = match.group(1)
             s = match.group(2)
@@ -242,109 +239,98 @@ def extract_medicine_name_from_strip(text):
                 return f"{b.capitalize()} {s}"
             return b.capitalize()
 
-    # 2) Strong brand + strength pattern
-    strong_matches = re.findall(r'\b([A-Z][A-Za-z]{2,20}\s?\d{1,4})\b', full_text)
-    for match in strong_matches:
-        candidate = match.strip()
-        nw = normalize_word(candidate)
-
-        if any(bad in nw for bad in ["tablet", "tablets", "capsule", "capsules", "alkem", "exp", "mfg"]):
-            continue
-        if len(candidate) >= 4:
-            return candidate
-
-    # 3) If OCR reads Gudcef200 without space
-    glued_matches = re.findall(r'\b([A-Z][A-Za-z]{2,20})(\d{2,4})\b', full_text)
-    for brand, strength in glued_matches:
-        candidate = f"{brand} {strength}"
-        nw = normalize_word(candidate)
-        if "exp" not in nw and "mfg" not in nw:
-            return candidate
-
-    # 4) First good top line
-    for line in lines[:5]:
-        words = re.findall(r'[A-Za-z0-9]+', line)
-        filtered = []
-
-        for w in words:
-            nw = normalize_word(w)
-            if nw in BAD_MED_WORDS:
-                continue
-            if len(w) >= 3 or re.fullmatch(r'\d+', w):
-                filtered.append(w)
-            if len(filtered) >= 2:
-                break
-
-        if filtered:
-            # If first is brand and second is strength, good
-            if len(filtered) >= 2 and re.fullmatch(r'\d{2,4}', filtered[1]):
-                return f"{filtered[0]} {filtered[1]}"
-            return " ".join(filtered)
+    # 3) Generic brand + strength
+    generic = re.findall(r'\b([A-Z][A-Za-z]{2,20})\s*([0-9]{2,4})\b', merged)
+    for brand, strength in generic:
+        nw = normalize_word(brand)
+        if nw not in {"tablet", "tablets", "capsule", "capsules", "alkem", "exp", "mfg"}:
+            return f"{brand} {strength}"
 
     return "Not found"
 
 
 # ==========================================
-# MEDICINE NAME EXTRACTION (PRESCRIPTION - HIGHLY TUNED)
+# PRESCRIPTION LINE PARSER (EXACT TUNED)
+# ==========================================
+def parse_prescription_lines(text):
+    """
+    Extract all medicine lines from prescription:
+    Example:
+      Tab Gudcef 200mg  1-0-1   x 5 days
+      Tab Monticope    0-0-1
+      Syr Chericof 7ml-0-7ml
+    """
+    text = fix_common_ocr_errors(text)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    parsed = []
+
+    for line in lines:
+        line_norm = fix_common_ocr_errors(line)
+
+        # Main tablet/capsule line pattern
+        match = re.search(
+            r'\b(?:tab|tablet|cap|capsule)\s+([A-Za-z]{3,20})\s*([0-9]{2,4})?\s*(?:mg|ml)?\s*([01Il]\s*-\s*[01Il]\s*-\s*[01Il])?',
+            line_norm,
+            re.IGNORECASE
+        )
+
+        if match:
+            brand = match.group(1)
+            strength = match.group(2)
+            dose = match.group(3)
+
+            med_name = brand.capitalize()
+            if strength:
+                med_name += f" {strength}"
+
+            parsed.append({
+                "line": line,
+                "medicine_name": med_name,
+                "dose_code": dose
+            })
+            continue
+
+        # Syrup line fallback
+        match2 = re.search(
+            r'\b(?:syr|syrup)\s+([A-Za-z]{3,20})',
+            line_norm,
+            re.IGNORECASE
+        )
+
+        if match2:
+            brand = match2.group(1)
+            parsed.append({
+                "line": line,
+                "medicine_name": brand.capitalize(),
+                "dose_code": None
+            })
+
+    return parsed
+
+
+# ==========================================
+# MEDICINE NAME FROM PRESCRIPTION
 # ==========================================
 def extract_medicine_name_from_prescription(text):
     if not text:
         return "Not found"
 
-    text = fix_common_ocr_errors(text)
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    parsed = parse_prescription_lines(text)
+    if not parsed:
+        return "Not found"
 
-    # 1) Known brand priority from prescription
-    for line in lines:
-        for brand in KNOWN_BRANDS:
-            pattern = rf'\b(?:tab|tablet|cap|capsule|syr|syrup)?\s*({brand})\s*([0-9]{{2,4}})?\b'
-            match = re.search(pattern, line, re.IGNORECASE)
-            if match:
-                b = match.group(1)
-                s = match.group(2)
-                if s:
-                    return f"{b.capitalize()} {s}"
-                return b.capitalize()
+    # Priority: first tablet/capsule with strength
+    for item in parsed:
+        if re.search(r'\d{2,4}', item["medicine_name"]):
+            return item["medicine_name"]
 
-    # 2) Generic patterns
-    patterns = [
-        r'(?:tab|tablet|cap|capsule|syr|syrup)\s+([A-Za-z]{3,20}(?:\s+\d{1,4})?)',
-        r'([A-Za-z]{3,20}(?:\s+\d{1,4})?)\s*[-:]?\s*[01Il]\s*-\s*[01Il]\s*-\s*[01Il]',
-    ]
-
-    for line in lines:
-        for pattern in patterns:
-            match = re.search(pattern, line, re.IGNORECASE)
-            if match:
-                candidate = match.group(1).strip()
-                if candidate and normalize_word(candidate) not in {"tab", "tablet", "cap"}:
-                    return candidate
-
-    # 3) Fallback from dosage line
-    for line in lines:
-        if re.search(r'\b[01Il]\s*-\s*[01Il]\s*-\s*[01Il]\b', line):
-            words = re.findall(r'[A-Za-z0-9]+', line)
-            filtered = []
-
-            for w in words:
-                nw = normalize_word(w)
-                if nw in BAD_MED_WORDS:
-                    continue
-                if len(w) >= 3 or re.fullmatch(r'\d+', w):
-                    filtered.append(w)
-                if len(filtered) >= 2:
-                    break
-
-            if filtered:
-                if len(filtered) >= 2 and re.fullmatch(r'\d{2,4}', filtered[1]):
-                    return f"{filtered[0]} {filtered[1]}"
-                return " ".join(filtered)
-
-    return "Not found"
+    # Otherwise first parsed medicine
+    return parsed[0]["medicine_name"]
 
 
 # ==========================================
-# EXPIRY DATE EXTRACTION (HIGHLY TUNED)
+# EXPIRY DATE EXTRACTION (EXACT TUNED)
 # ==========================================
 def extract_expiry_date(text):
     if not text:
@@ -353,33 +339,29 @@ def extract_expiry_date(text):
     text = fix_common_ocr_errors(text)
     merged = text.replace("\n", " ")
 
-    patterns = [
-        r'EXP(?:IRY)?[:\s\-]*([0-1]?\d[\/\-]\d{4})',
-        r'EXP(?:IRY)?[:\s\-]*([0-1]?\d[\/\-]\d{2})',
-        r'\b([0-1]?\d[\/\-]\d{4})\b',
-        r'\b([0-1]?\d[\/\-]\d{2})\b',
-    ]
+    # Exact priority
+    match = re.search(r'\bEXP(?:IRY)?[\s:\-]*([0-1]?\d[\/\-]\d{4})\b', merged, re.IGNORECASE)
+    if match:
+        return match.group(1).replace("-", "/")
 
-    for pattern in patterns:
-        match = re.search(pattern, merged, re.IGNORECASE)
-        if match:
-            value = match.group(1).replace("-", "/").strip()
-
-            # reject obvious wrong values
-            if value.startswith("00/"):
-                continue
-
-            return value
+    # fallback
+    match2 = re.search(r'\b([0-1]?\d[\/\-]\d{4})\b', merged)
+    if match2:
+        val = match2.group(1).replace("-", "/")
+        if not val.startswith("00/"):
+            return val
 
     return "Not found"
 
 
 # ==========================================
-# DOSAGE EXTRACTION (HIGHLY TUNED)
+# DOSAGE HELPERS
 # ==========================================
 def extract_days(text):
     if not text:
-        return None
+        return "5"
+
+    text = fix_common_ocr_errors(text)
 
     patterns = [
         r'x\s*(\d+)\s*days?',
@@ -396,14 +378,17 @@ def extract_days(text):
 
 
 def normalize_dose_code(code):
+    if not code:
+        return None
     code = code.replace(" ", "")
     code = code.replace("I", "1").replace("l", "1")
     return code
 
 
-def convert_dosage_to_text(code, days=None):
+def convert_dosage_to_text(code, days="5"):
     code = normalize_dose_code(code)
-    days = days or "5"
+    if not code:
+        return "Not found"
 
     dosage_map = {
         "1-0-1": f"Morning and Night for {days} days",
@@ -418,47 +403,15 @@ def convert_dosage_to_text(code, days=None):
     return dosage_map.get(code, f"Dosage code {code} for {days} days")
 
 
-def extract_dosage_text(prescription_text, medicine_name):
-    if not prescription_text:
-        return "Not found"
-
-    prescription_text = fix_common_ocr_errors(prescription_text)
-    lines = [line.strip() for line in prescription_text.splitlines() if line.strip()]
-    days = extract_days(prescription_text)
-
-    med_key = ""
-    if medicine_name and medicine_name != "Not found":
-        med_key = normalize_text_for_match(medicine_name.split()[0])
-
-    # 1) Try exact medicine line first
-    if med_key:
-        for line in lines:
-            if med_key in normalize_text_for_match(line):
-                dose_match = re.search(r'\b([01Il]\s*-\s*[01Il]\s*-\s*[01Il])\b', line)
-                if dose_match:
-                    code = normalize_dose_code(dose_match.group(1))
-                    return convert_dosage_to_text(code, days)
-
-    # 2) Try any dosage line
-    for line in lines:
-        dose_match = re.search(r'\b([01Il]\s*-\s*[01Il]\s*-\s*[01Il])\b', line)
-        if dose_match:
-            code = normalize_dose_code(dose_match.group(1))
-            return convert_dosage_to_text(code, days)
-
-    return "Not found"
-
-
 # ==========================================
-# FINAL CHOOSER (SMARTER)
+# SMART FINAL MEDICINE CHOOSER
 # ==========================================
 def choose_best_medicine_name(prescription_name, strip_name):
-    # Prefer strip if it has strength number
-    if strip_name != "Not found":
-        if re.search(r'\d{2,4}', strip_name):
-            return strip_name
+    # Best case: strip has Gudcef 200
+    if strip_name != "Not found" and re.search(r'\d{2,4}', strip_name):
+        return strip_name
 
-    # If prescription has strength and strip doesn't
+    # Then prescription with strength
     if prescription_name != "Not found" and re.search(r'\d{2,4}', prescription_name):
         return prescription_name
 
@@ -467,6 +420,37 @@ def choose_best_medicine_name(prescription_name, strip_name):
 
     if prescription_name != "Not found":
         return prescription_name
+
+    return "Not found"
+
+
+# ==========================================
+# DOSAGE EXTRACTION (MATCH CHOSEN MEDICINE)
+# ==========================================
+def extract_dosage_text(prescription_text, medicine_name):
+    if not prescription_text:
+        return "Not found"
+
+    parsed = parse_prescription_lines(prescription_text)
+    if not parsed:
+        return "Not found"
+
+    days = extract_days(prescription_text)
+    med_key = normalize_text_for_match(medicine_name.split()[0]) if medicine_name and medicine_name != "Not found" else ""
+
+    # 1) Try matching chosen medicine line
+    if med_key:
+        for item in parsed:
+            if med_key in normalize_text_for_match(item["medicine_name"]):
+                dose_code = normalize_dose_code(item["dose_code"])
+                if dose_code:
+                    return convert_dosage_to_text(dose_code, days)
+
+    # 2) fallback first available tablet/capsule dosage
+    for item in parsed:
+        dose_code = normalize_dose_code(item["dose_code"])
+        if dose_code:
+            return convert_dosage_to_text(dose_code, days)
 
     return "Not found"
 
@@ -575,6 +559,9 @@ def home(request):
             # OCR
             prescription_text, _ = extract_text_with_ocr_space(prescription_path)
             medicine_text, _ = extract_text_with_ocr_space(medicine_path)
+
+            prescription_text = fix_common_ocr_errors(prescription_text)
+            medicine_text = fix_common_ocr_errors(medicine_text)
 
             print("\n========== PRESCRIPTION OCR ==========")
             print(prescription_text)
