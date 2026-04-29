@@ -473,6 +473,7 @@
     let awaitingClearAllCommand = false;
     let awaitingModeSelection = false;
     let isFullyStopped = false;
+    let isOpeningCamera = false;
 
     function updateStatus(msg) {
       statusBox.innerText = msg;
@@ -481,6 +482,10 @@
 
     function updateVoicePrompt(msg) {
       voicePromptText.innerText = msg;
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     function speak(text, priority = false, callback = null) {
@@ -493,6 +498,7 @@
         utter.rate = 0.95;
         utter.pitch = 1;
         utter.volume = 1;
+        utter.lang = "en-IN";
 
         utter.onend = function() {
           if (callback && !isFullyStopped) callback();
@@ -525,6 +531,7 @@
 
     function stopEverything(showMessage = true) {
       isFullyStopped = true;
+      isOpeningCamera = false;
 
       stopSpeaking();
       stopRecognition();
@@ -564,9 +571,10 @@
       }
 
       recognition = new SpeechRecognition();
-      recognition.lang = "en-US";
+      recognition.lang = "en-IN";
       recognition.continuous = false;
       recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
 
       recognition.onstart = () => {
         if (isFullyStopped) {
@@ -591,23 +599,13 @@
         const transcript = event.results[0][0].transcript.toLowerCase().trim();
         isListening = false;
 
-        // Global STOP command
-        if (
-          transcript.includes("stop") ||
-          transcript === "stop" ||
-          transcript.includes("stap")
-        ) {
+        if (transcript.includes("stop")) {
           stopEverything(true);
           return;
         }
 
-        // Mode selection
         if (awaitingModeSelection) {
-          if (
-            transcript.includes("voice guide") ||
-            transcript.includes("voice") ||
-            transcript.includes("guide")
-          ) {
+          if (transcript.includes("voice")) {
             awaitingModeSelection = false;
             speak("Voice guide selected.", true, () => {
               setTimeout(() => {
@@ -617,14 +615,11 @@
             return;
           }
 
-          if (
-            transcript.includes("manual upload") ||
-            transcript.includes("manual")
-          ) {
+          if (transcript.includes("manual")) {
             awaitingModeSelection = false;
             updateStatus("Manual upload selected.");
             updateVoicePrompt("Manual upload selected.");
-            speak("Ok, you will start manually to upload Prescription image and Medicine image.", true);
+            speak("Ok, manual upload selected.", true);
             return;
           }
 
@@ -636,14 +631,8 @@
           return;
         }
 
-        // Clear all voice command mode
         if (awaitingClearAllCommand) {
-          if (
-            transcript.includes("clear all") ||
-            transcript.includes("clear") ||
-            transcript.includes("clier all") ||
-            transcript.includes("clearal")
-          ) {
+          if (transcript.includes("clear")) {
             awaitingClearAllCommand = false;
             speak("Clearing all data.", true, () => {
               if (!isFullyStopped) clearAllData();
@@ -659,7 +648,6 @@
           }
         }
 
-        // Normal yes/no mode
         if (transcript.includes("yes")) {
           handleYes();
         } else if (transcript.includes("no")) {
@@ -668,11 +656,9 @@
           speak("I did not understand. Please say Yes or No.", true, () => {
             setTimeout(() => {
               if (isFullyStopped) return;
-
               if (currentStep === "start" || currentStep === "wait_second_confirm") {
                 try {
-                  if (isListening) return;
-                  recognition.start();
+                  if (!isListening) recognition.start();
                 } catch (e) {}
               }
             }, 700);
@@ -721,8 +707,7 @@
         setTimeout(() => {
           if (isFullyStopped) return;
           try {
-            if (isListening) return;
-            recognition.start();
+            if (!isListening) recognition.start();
           } catch (e) {}
         }, 900);
       });
@@ -742,8 +727,7 @@
         setTimeout(() => {
           if (isFullyStopped) return;
           try {
-            if (isListening) return;
-            recognition.start();
+            if (!isListening) recognition.start();
           } catch (e) {}
         }, 900);
       });
@@ -770,19 +754,54 @@
       setTimeout(() => {
         if (isFullyStopped) return;
         try {
-          if (isListening) return;
-          recognition.start();
+          if (!isListening) recognition.start();
         } catch (e) {}
       }, 500);
     }
 
+    async function fullyReleaseCamera() {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
+
+      countdownText.innerText = "";
+
+      if (video) {
+        try { video.pause(); } catch (e) {}
+      }
+
+      if (currentStream) {
+        const tracks = currentStream.getTracks();
+        tracks.forEach(track => {
+          try { track.stop(); } catch (e) {}
+        });
+        currentStream = null;
+      }
+
+      if (video) {
+        try { video.srcObject = null; } catch (e) {}
+      }
+
+      // VERY IMPORTANT FOR CHROMEBOOK / CHROME MOBILE
+      await sleep(1200);
+    }
+
     async function openCamera(target) {
-      if (isFullyStopped) return;
+      if (isFullyStopped || isOpeningCamera) return;
+
+      isOpeningCamera = true;
 
       try {
         stopRecognition();
         stopSpeaking();
-        stopCamera();
+
+        await fullyReleaseCamera();
+
+        if (isFullyStopped) {
+          isOpeningCamera = false;
+          return;
+        }
 
         currentTarget = target;
         cameraSection.classList.add("active");
@@ -805,21 +824,27 @@
         });
 
         if (isFullyStopped) {
-          stopCamera();
+          await fullyReleaseCamera();
+          isOpeningCamera = false;
           return;
         }
 
         video.srcObject = currentStream;
-        await video.play();
 
-        setTimeout(() => {
-          if (!isFullyStopped) startCountdownAndAutoCapture(8);
-        }, 500);
+        await sleep(300);
+        await video.play();
+        await sleep(700);
+
+        if (!isFullyStopped) {
+          startCountdownAndAutoCapture(8);
+        }
 
       } catch (error) {
         console.error("Camera open failed:", error);
         updateStatus("Camera access failed. Please allow camera permission and try again.");
         speak("Camera access failed. Please allow camera permission and try again.", true);
+      } finally {
+        isOpeningCamera = false;
       }
     }
 
@@ -832,16 +857,24 @@
       countdownText.innerText = "";
 
       if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
+        currentStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) {}
+        });
         currentStream = null;
       }
 
-      video.srcObject = null;
+      try { video.pause(); } catch (e) {}
+      try { video.srcObject = null; } catch (e) {}
     }
 
     function captureCurrentFrame() {
       if (isFullyStopped) return false;
       if (!video.videoWidth || !video.videoHeight || !currentTarget) return false;
+
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -863,7 +896,7 @@
         speak("Prescription image captured.", true, () => {
           setTimeout(() => {
             if (!isFullyStopped) askSecondCamera();
-          }, 800);
+          }, 1200);
         });
 
       } else if (currentTarget === "medicine") {
@@ -878,7 +911,7 @@
         speak("Medicine image captured.", true, () => {
           setTimeout(() => {
             if (!isFullyStopped) safeAutoSubmitAnalyze();
-          }, 800);
+          }, 1200);
         });
       }
 
@@ -909,8 +942,14 @@
           countdownText.innerText = "Capturing now...";
 
           setTimeout(() => {
-            if (!isFullyStopped) captureCurrentFrame();
-          }, 400);
+            if (!isFullyStopped) {
+              const ok = captureCurrentFrame();
+              if (!ok) {
+                updateStatus("Capture failed. Please try manual capture.");
+                speak("Capture failed. Please try manual capture.", true);
+              }
+            }
+          }, 500);
         }
       }, 1000);
     }
@@ -926,8 +965,7 @@
         setTimeout(() => {
           if (isFullyStopped) return;
           try {
-            if (isListening) return;
-            recognition.start();
+            if (!isListening) recognition.start();
           } catch (e) {}
         }, 1000);
       });
@@ -946,16 +984,17 @@
 
         setTimeout(() => {
           if (!isFullyStopped) openCamera("prescription");
-        }, 700);
+        }, 900);
 
       } else if (currentStep === "wait_second_confirm") {
         currentStep = "opening_second";
         updateStatus("Yes received. Opening second camera.");
         updateVoicePrompt("Yes received. Opening second camera.");
 
+        // IMPORTANT EXTRA DELAY BEFORE 2ND CAMERA
         setTimeout(() => {
           if (!isFullyStopped) openCamera("medicine");
-        }, 1000);
+        }, 1500);
       }
     }
 
@@ -1030,6 +1069,7 @@
       stopCamera();
 
       isFullyStopped = false;
+      isOpeningCamera = false;
       currentTarget = null;
       currentStep = "mode_select";
       awaitingClearAllCommand = false;
@@ -1063,7 +1103,7 @@
       });
     }
 
-    // Button actions
+    // Buttons
     yesBtn.addEventListener("click", () => {
       isFullyStopped = false;
       handleYes();
@@ -1160,7 +1200,7 @@
                 setTimeout(() => {
                   if (isFullyStopped) return;
 
-                  speak("Say Clear all to clear all datas and ready for new.", true, () => {
+                  speak("Say Clear all to clear all data and start new scan.", true, () => {
                     setTimeout(() => {
                       if (!isFullyStopped) startClearAllListening();
                     }, 700);
