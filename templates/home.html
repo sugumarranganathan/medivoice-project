@@ -270,74 +270,29 @@
       display: block;
     }
 
-    /* ===== FINAL CLEAR RESULT UI ===== */
     .result-box {
-      margin-top: 22px;
+      margin-top: 20px;
       text-align: left;
       background: #f8fafc;
-      border: 1px solid #dbeafe;
-      border-radius: 20px;
-      padding: 22px;
-      box-shadow: 0 8px 18px rgba(37, 99, 235, 0.06);
+      border: 1px solid #e2e8f0;
+      border-radius: 18px;
+      padding: 18px;
     }
 
     .result-box h2 {
-      margin: 0 0 18px 0;
+      margin-top: 0;
       color: #0f172a;
-      font-size: 30px;
-      font-weight: 800;
     }
 
-    .result-grid {
-      display: grid;
-      gap: 16px;
-    }
-
-    .result-card {
-      background: #ffffff;
-      border: 1px solid #dbeafe;
-      border-left: 6px solid #2563eb;
-      border-radius: 16px;
-      padding: 18px;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.05);
+    .result-item {
+      font-size: 18px;
+      margin: 14px 0;
+      line-height: 1.7;
     }
 
     .result-label {
-      display: block;
-      font-size: 14px;
-      font-weight: 800;
-      color: #475569;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-    }
-
-    .result-value {
-      display: block;
-      font-size: 24px;
-      font-weight: 800;
+      font-weight: bold;
       color: #111827;
-      line-height: 1.5;
-      word-break: break-word;
-    }
-
-    .result-error {
-      background: #fef2f2;
-      border: 1px solid #fecaca;
-      border-left: 6px solid #dc2626;
-      border-radius: 14px;
-      padding: 16px;
-      color: #b91c1c;
-      font-size: 18px;
-      font-weight: 700;
-    }
-
-    .audio-box {
-      margin-top: 18px;
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 14px;
-      padding: 12px;
     }
 
     .hidden-canvas {
@@ -360,14 +315,6 @@
 
       .green-btn, .red-btn, .yes-btn, .no-btn, .listen-btn, .stop-btn {
         width: 100%;
-      }
-
-      .result-box h2 {
-        font-size: 24px;
-      }
-
-      .result-value {
-        font-size: 20px;
       }
     }
   </style>
@@ -454,25 +401,20 @@
     <div class="result-box" id="resultBox">
       {% if result.error %}
         <h2 style="color:#dc2626;">Error</h2>
-        <div class="result-error">{{ result.error }}</div>
+        <div class="result-item">{{ result.error }}</div>
       {% else %}
         <h2>Result</h2>
-
-        <div class="result-grid">
-          <div class="result-card">
-            <span class="result-label">Medicine Name</span>
-            <span class="result-value">{{ result.medicine_name|default:"Not found" }}</span>
-          </div>
-
-          <div class="result-card">
-            <span class="result-label">Expiry Date</span>
-            <span class="result-value">{{ result.expiry_date|default:"Not found" }}</span>
-          </div>
-
-          <div class="result-card">
-            <span class="result-label">Dosage</span>
-            <span class="result-value">{{ result.dosage_text|default:"Not found" }}</span>
-          </div>
+        <div class="result-item">
+          <span class="result-label">Medicine name:</span>
+          <span>{{ result.medicine_name }}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">Expiry date:</span>
+          <span>{{ result.expiry_date }}</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">Dosage:</span>
+          <span>{{ result.dosage_text }}</span>
         </div>
 
         <div id="voiceResultText" style="display:none;">
@@ -480,11 +422,9 @@
         </div>
 
         {% if result.servam_audio_url %}
-          <div class="audio-box">
-            <audio autoplay controls style="width:100%;" id="serverAudio">
-              <source src="{{ result.servam_audio_url }}" type="audio/mpeg">
-            </audio>
-          </div>
+          <audio autoplay controls style="margin-top:15px; width:100%;" id="serverAudio">
+            <source src="{{ result.servam_audio_url }}" type="audio/mpeg">
+          </audio>
         {% endif %}
       {% endif %}
     </div>
@@ -651,13 +591,23 @@
         const transcript = event.results[0][0].transcript.toLowerCase().trim();
         isListening = false;
 
-        if (transcript.includes("stop") || transcript === "stop" || transcript.includes("stap")) {
+        // Global STOP command
+        if (
+          transcript.includes("stop") ||
+          transcript === "stop" ||
+          transcript.includes("stap")
+        ) {
           stopEverything(true);
           return;
         }
 
+        // Mode selection
         if (awaitingModeSelection) {
-          if (transcript.includes("voice guide") || transcript.includes("voice") || transcript.includes("guide")) {
+          if (
+            transcript.includes("voice guide") ||
+            transcript.includes("voice") ||
+            transcript.includes("guide")
+          ) {
             awaitingModeSelection = false;
             speak("Voice guide selected.", true, () => {
               setTimeout(() => {
@@ -667,7 +617,10 @@
             return;
           }
 
-          if (transcript.includes("manual upload") || transcript.includes("manual")) {
+          if (
+            transcript.includes("manual upload") ||
+            transcript.includes("manual")
+          ) {
             awaitingModeSelection = false;
             updateStatus("Manual upload selected.");
             updateVoicePrompt("Manual upload selected.");
@@ -683,8 +636,14 @@
           return;
         }
 
+        // Clear all voice command mode
         if (awaitingClearAllCommand) {
-          if (transcript.includes("clear all") || transcript.includes("clear") || transcript.includes("clier all") || transcript.includes("clearal")) {
+          if (
+            transcript.includes("clear all") ||
+            transcript.includes("clear") ||
+            transcript.includes("clier all") ||
+            transcript.includes("clearal")
+          ) {
             awaitingClearAllCommand = false;
             speak("Clearing all data.", true, () => {
               if (!isFullyStopped) clearAllData();
@@ -700,6 +659,7 @@
           }
         }
 
+        // Normal yes/no mode
         if (transcript.includes("yes")) {
           handleYes();
         } else if (transcript.includes("no")) {
@@ -1103,6 +1063,7 @@
       });
     }
 
+    // Button actions
     yesBtn.addEventListener("click", () => {
       isFullyStopped = false;
       handleYes();
